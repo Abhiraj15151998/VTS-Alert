@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>VTS Alert Notifier</title>
+<style>
+  :root {
+    --ink: #182A3A;
+    --ink-soft: #4C6178;
+    --paper: #F5F3EC;
+    --panel: #FFFFFF;
+    --line: #DAD5C7;
+    --steel: #2C5A73;
+    --steel-deep: #1D3F52;
+    --flame: #D9762D;
+    --flame-deep: #B85F1E;
+    --ok: #2E7D4F;
+    --warn: #B23A3A;
+    --alert-bg: rgba(178,58,58,0.10);
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #E9E4D8; --ink-soft: #A9B7C4; --paper: #14202A; --panel: #1B2A36;
+      --line: #2E3F4C; --steel: #5D93AC; --steel-deep: #7BAFC6;
+      --flame: #E28A45; --flame-deep: #F0A05F; --ok: #5FBE86; --warn: #E27272;
+      --alert-bg: rgba(226,114,114,0.10);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ink: #E9E4D8; --ink-soft: #A9B7C4; --paper: #14202A; --panel: #1B2A36;
+    --line: #2E3F4C; --steel: #5D93AC; --steel-deep: #7BAFC6;
+    --flame: #E28A45; --flame-deep: #F0A05F; --ok: #5FBE86; --warn: #E27272;
+    --alert-bg: rgba(226,114,114,0.10);
+  }
+  html, body { height: 100%; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--ink);
+    font-family: "IBM Plex Sans", Arial, Helvetica, sans-serif;
+    line-height: 1.45;
+    scroll-padding-top: env(safe-area-inset-top, 0px);
+  }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 40px 24px 80px; }
+  header.top {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 16px; border-bottom: 2px solid var(--ink); padding-bottom: 18px; margin-bottom: 32px;
+  }
+  header.top h1 {
+    font-family: Georgia, "Times New Roman", serif; font-size: 1.7rem;
+    font-weight: 600; margin: 0; letter-spacing: -0.01em;
+  }
+  header.top .tag { font-size: 0.82rem; color: var(--ink-soft); text-align: right; max-width: 220px; }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 3px;
+    padding: 28px; margin-bottom: 24px;
+  }
+  label { display: block; font-size: 0.78rem; color: var(--ink-soft); margin-bottom: 6px; }
+  .field { margin-bottom: 22px; }
+
+  input[type="text"] {
+    width: 100%; padding: 12px 14px; font-size: 1.02rem;
+    font-family: "IBM Plex Mono", Consolas, monospace; letter-spacing: 0.02em;
+    border: 1px solid var(--line); border-radius: 2px; background: var(--paper); color: var(--ink);
+    text-transform: uppercase;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--steel); outline-offset: 1px; }
+
+  /* Alert multi-select dropdown */
+  .alert-select { position: relative; }
+  .dd-toggle {
+    width: 100%; background: var(--paper); color: var(--ink); border: 1px solid var(--line);
+    padding: 12px 14px; font-size: 0.95rem; border-radius: 2px; font-family: inherit;
+    display: flex; align-items: center; justify-content: space-between; cursor: pointer;
+  }
+  .dd-toggle:hover { border-color: var(--steel); }
+  .dd-toggle .badge {
+    background: var(--steel-deep); color: #fff; font-size: 0.72rem;
+    padding: 2px 8px; border-radius: 20px; font-weight: 600;
+  }
+  .dd-panel {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 5;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 3px;
+    padding: 10px 16px; box-shadow: 0 8px 22px rgba(0,0,0,0.14);
+  }
+  .dd-panel.hidden { display: none; }
+  .dd-panel label.opt {
+    display: flex; align-items: center; gap: 10px; font-size: 0.92rem;
+    color: var(--ink); padding: 8px 2px; margin: 0; cursor: pointer;
+    border-bottom: 1px solid var(--line);
+  }
+  .dd-panel label.opt:last-of-type { border-bottom: none; }
+  .dd-actions {
+    display: flex; gap: 14px; margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line);
+  }
+  .dd-actions button {
+    background: none; border: none; color: var(--steel); font-size: 0.8rem;
+    padding: 0; text-decoration: underline; cursor: pointer;
+  }
+
+  button.submit { font-family: inherit; cursor: pointer; border-radius: 2px; border: none; }
+  .btn-flame {
+    background: var(--flame-deep); color: #fff; padding: 13px 24px;
+    font-weight: 600; font-size: 0.98rem; width: 100%;
+  }
+  .btn-flame:hover { background: var(--flame); }
+  .btn-flame:disabled { background: var(--line); color: var(--ink-soft); cursor: not-allowed; }
+
+  .match-box {
+    margin-top: 4px; padding: 14px 16px; border-radius: 2px; font-size: 0.9rem;
+    border: 1px solid var(--line); background: var(--paper); display: none;
+  }
+  .match-box.show { display: block; }
+  .match-box.ok { border-color: var(--ok); }
+  .match-box.warn { border-color: var(--warn); color: var(--warn); }
+  .match-box .transporter { font-weight: 600; }
+  .match-box .email { color: var(--ink-soft); }
+
+  .log-section {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 3px;
+    padding: 24px 28px;
+  }
+  .section-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px; gap: 12px; flex-wrap: wrap;
+  }
+  .section-head h2 { font-size: 1rem; margin: 0; font-weight: 600; }
+  .section-head .count { font-size: 0.8rem; color: var(--ink-soft); }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  thead th {
+    text-align: left; font-weight: 600; color: var(--ink-soft); font-size: 0.76rem;
+    padding: 8px 10px; border-bottom: 1px solid var(--line);
+  }
+  tbody td { padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  tbody tr:last-child td { border-bottom: none; }
+  .table-scroll {
+    overflow-x: auto; max-height: 300px; overflow-y: auto;
+    border: 1px solid var(--line); border-radius: 2px;
+  }
+  .empty-note { color: var(--ink-soft); font-size: 0.88rem; padding: 14px 0; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.72rem; font-weight: 600; }
+  .pill.sent { background: rgba(46,125,79,0.14); color: var(--ok); }
+  .btn-ghost {
+    background: transparent; color: var(--ink-soft); padding: 8px 12px;
+    border: 1px solid var(--line); font-size: 0.82rem; border-radius: 2px; cursor: pointer;
+    font-family: inherit;
+  }
+  .btn-ghost:hover { border-color: var(--ink-soft); color: var(--ink); }
+
+  footer.note { font-size: 0.78rem; color: var(--ink-soft); text-align: center; margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <h1>VTS Alert Notifier</h1>
+    <div class="tag">Select vehicle · select alert(s) · notify</div>
+  </header>
+
+  <section class="panel">
+    <div class="field">
+      <label for="vehicleInput">Vehicle / TT No.</label>
+      <input type="text" id="vehicleInput" placeholder="e.g. AS23DC3708" autocomplete="off" list="ttList">
+      <datalist id="ttList"></datalist>
+      <div class="match-box" id="matchBox"></div>
+    </div>
+
+    <div class="field">
+      <label>Alert type(s) to notify for</label>
+      <div class="alert-select">
+        <button type="button" class="dd-toggle" id="ddToggle">
+          <span id="ddLabel">Select alerts</span>
+          <span class="badge" id="ddBadge">0</span>
+        </button>
+        <div class="dd-panel hidden" id="ddPanel"></div>
+      </div>
+    </div>
+
+    <button class="submit" id="buildBtn" type="button" style="background:var(--steel-deep); color:#fff; padding:11px 20px; font-weight:600; font-size:0.92rem; width:100%; margin-bottom:22px;" disabled>Build draft</button>
+
+    <div id="draftFields" style="display:none;">
+      <div class="field">
+        <label for="ccInput">CC (comma-separated emails, optional)</label>
+        <input type="text" id="ccInput" placeholder="name@example.com, other@example.com" style="text-transform:none;">
+      </div>
+      <div class="field">
+        <label for="subjectInput">Subject</label>
+        <input type="text" id="subjectInput" style="text-transform:none; font-family:inherit;">
+      </div>
+      <div class="field">
+        <label for="bodyInput">Body</label>
+        <textarea id="bodyInput" style="width:100%; min-height:160px; padding:12px 14px; font-size:0.92rem; font-family:inherit; border:1px solid var(--line); border-radius:2px; background:var(--paper); color:var(--ink); resize:vertical;"></textarea>
+      </div>
+    </div>
+
+    <button class="submit btn-flame" id="notifyBtn" type="button" disabled>Send email now</button>
+    <div id="sendStatus" style="margin-top:10px; font-size:0.85rem;"></div>
+  </section>
+
+  <section class="log-section">
+    <div class="section-head">
+      <h2>Notification log</h2>
+      <div class="count" id="logCount">0 entries</div>
+    </div>
+    <div class="table-scroll">
+      <table id="logTable">
+        <thead><tr><th>Time</th><th>Vehicle</th><th>Transporter</th><th>Alerts notified</th><th>Status</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </div>
+    <div class="empty-note" id="logEmpty">No notifications sent yet this session — log stays in this browser only.</div>
+    <div style="margin-top:14px;">
+      <button class="btn-ghost" id="clearLogBtn" type="button">Clear log</button>
+    </div>
+  </section>
+
+  <footer class="note">Vendor directory is embedded from your master list. Notify opens a pre-filled email draft — nothing sends automatically from this page.</footer>
+
+</div>
+
+<script>
+  var VENDOR_DATA = [{"Vendor Code": 11018637, "Transporter": "A R GAS AGENCY", "TT No.": "AS22AC0646", "Email ID": "KARDONG586@GMAIL.COM"}, {"Vendor Code": 11035572, "Transporter": "A.K & COMPANY", "TT No.": "AS01RC6985", "Email ID": "A.KCOMPANYDJN@GMAIL.COM"}, {"Vendor Code": 11035572, "Transporter": "A.K & COMPANY", "TT No.": "AS01RC7025", "Email ID": "A.KCOMPANYDJN@GMAIL.COM"}, {"Vendor Code": 11035572, "Transporter": "A.K & COMPANY", "TT No.": "AS01RC7045", "Email ID": "A.KCOMPANYDJN@GMAIL.COM"}, {"Vendor Code": 11035572, "Transporter": "A.K & COMPANY", "TT No.": "AS01RC7055", "Email ID": "A.KCOMPANYDJN@GMAIL.COM"}, {"Vendor Code": 11035572, "Transporter": "A.K & COMPANY", "TT No.": "AS23CC1324", "Email ID": "A.KCOMPANYDJN@GMAIL.COM"}, {"Vendor Code": 11035572, "Transporter": "A.K & COMPANY", "TT No.": "AS23DC1485", "Email ID": "A.KCOMPANYDJN@GMAIL.COM"}, {"Vendor Code": 11035572, "Transporter": "A.K & COMPANY", "TT No.": "AS23DC1645", "Email ID": "A.KCOMPANYDJN@GMAIL.COM"}, {"Vendor Code": 11035572, "Transporter": "A.K & COMPANY", "TT No.": "AS23DC1745", "Email ID": "A.KCOMPANYDJN@GMAIL.COM"}, {"Vendor Code": 11035572, "Transporter": "A.K & COMPANY", "TT No.": "AS23DC1750", "Email ID": "A.KCOMPANYDJN@GMAIL.COM"}, {"Vendor Code": 11035572, "Transporter": "A.K & COMPANY", "TT No.": "AS23DC1495", "Email ID": "A.KCOMPANYDJN@GMAIL.COM"}, {"Vendor Code": 11012106, "Transporter": "ALLIED GAS SERVICES", "TT No.": "AS06BC8377", "Email ID": "skballiedgas@yahoo.co.in"}, {"Vendor Code": 11012106, "Transporter": "ALLIED GAS SERVICES", "TT No.": "AS23CC1220", "Email ID": "skballiedgas@yahoo.co.in"}, {"Vendor Code": 11012106, "Transporter": "ALLIED GAS SERVICES", "TT No.": "AS23CC1222", "Email ID": "skballiedgas@yahoo.co.in"}, {"Vendor Code": 11022321, "Transporter": "ANANTA MORAN", "TT No.": "AS23CC7780", "Email ID": "MSANANTAMORAN@GMAIL.COM"}, {"Vendor Code": 11022321, "Transporter": "ANANTA MORAN", "TT No.": "AS23CC7781", "Email ID": "MSANANTAMORAN@GMAIL.COM"}, {"Vendor Code": 11022321, "Transporter": "ANANTA MORAN", "TT No.": "AS23CC7782", "Email ID": "MSANANTAMORAN@GMAIL.COM"}, {"Vendor Code": 11022321, "Transporter": "ANANTA MORAN", "TT No.": "AS23CC7783", "Email ID": "MSANANTAMORAN@GMAIL.COM"}, {"Vendor Code": 11022321, "Transporter": "ANANTA MORAN", "TT No.": "AS23DC3315", "Email ID": "MSANANTAMORAN@GMAIL.COM"}, {"Vendor Code": 11050339, "Transporter": "ARATI DEB", "TT No.": "AS07AC8277", "Email ID": "ARATIDEB046@GMAIL.COM"}, {"Vendor Code": 11050339, "Transporter": "ARATI DEB", "TT No.": "AS09AC6347", "Email ID": "ARATIDEB046@GMAIL.COM"}, {"Vendor Code": 11038584, "Transporter": "ASSAM ENTERPRISE", "TT No.": "AS04BC8994", "Email ID": "ASSAMENTERPRISEOFFICIAL@GMAIL.COM"}, {"Vendor Code": 11038584, "Transporter": "ASSAM ENTERPRISE", "TT No.": "AS07BC5278", "Email ID": "ASSAMENTERPRISEOFFICIAL@GMAIL.COM"}, {"Vendor Code": 11038584, "Transporter": "ASSAM ENTERPRISE", "TT No.": "AS28AC0593", "Email ID": "ASSAMENTERPRISEOFFICIAL@GMAIL.COM"}, {"Vendor Code": 11038584, "Transporter": "ASSAM ENTERPRISE", "TT No.": "AS01NC8714", "Email ID": "ASSAMENTERPRISEOFFICIAL@GMAIL.COM"}, {"Vendor Code": 11038584, "Transporter": "ASSAM ENTERPRISE", "TT No.": "AS01QC5839", "Email ID": "ASSAMENTERPRISEOFFICIAL@GMAIL.COM"}, {"Vendor Code": 11038584, "Transporter": "ASSAM ENTERPRISE", "TT No.": "AS04BC5901", "Email ID": "ASSAMENTERPRISEOFFICIAL@GMAIL.COM"}, {"Vendor Code": 11038584, "Transporter": "ASSAM ENTERPRISE", "TT No.": "AS04BC9485", "Email ID": "ASSAMENTERPRISEOFFICIAL@GMAIL.COM"}, {"Vendor Code": 11038584, "Transporter": "ASSAM ENTERPRISE", "TT No.": "AS23CC7051", "Email ID": "ASSAMENTERPRISEOFFICIAL@GMAIL.COM"}, {"Vendor Code": 11038584, "Transporter": "ASSAM ENTERPRISE", "TT No.": "AS01QC5853", "Email ID": "ASSAMENTERPRISEOFFICIAL@GMAIL.COM"}, {"Vendor Code": 11038584, "Transporter": "ASSAM ENTERPRISE", "TT No.": "AS23CC6700", "Email ID": "ASSAMENTERPRISEOFFICIAL@GMAIL.COM"}, {"Vendor Code": 11050637, "Transporter": "B B INDANE GRAMIN VITRAK", "TT No.": "AS01SC0636", "Email ID": "BB.INDANE@GMAIL.COM"}, {"Vendor Code": 11050338, "Transporter": "BANGLOI INDANE GRAMIN VITRAK", "TT No.": "AS01RC2483", "Email ID": "DEEPAKRAI22600@GMAIL.COM"}, {"Vendor Code": 10112810, "Transporter": "BARUAH CONSTRUCTION", "TT No.": "AS23DC3708", "Email ID": "baruahconstruction20@gmail.com"}, {"Vendor Code": 10112810, "Transporter": "BARUAH CONSTRUCTION", "TT No.": "AS23DC4144", "Email ID": "baruahconstruction20@gmail.com"}, {"Vendor Code": 10112810, "Transporter": "BARUAH CONSTRUCTION", "TT No.": "AS23CC1595", "Email ID": "baruahconstruction20@gmail.com"}, {"Vendor Code": 10112810, "Transporter": "BARUAH CONSTRUCTION", "TT No.": "AS23CC8924", "Email ID": "baruahconstruction20@gmail.com"}, {"Vendor Code": 10112810, "Transporter": "BARUAH CONSTRUCTION", "TT No.": "AS23DC3709", "Email ID": "baruahconstruction20@gmail.com"}, {"Vendor Code": 10112810, "Transporter": "BARUAH CONSTRUCTION", "TT No.": "AS23DC3781", "Email ID": "baruahconstruction20@gmail.com"}, {"Vendor Code": 10112810, "Transporter": "BARUAH CONSTRUCTION", "TT No.": "AS23DC3782", "Email ID": "baruahconstruction20@gmail.com"}, {"Vendor Code": 10112810, "Transporter": "BARUAH CONSTRUCTION", "TT No.": "AS23BC8158", "Email ID": "baruahconstruction20@gmail.com"}, {"Vendor Code": 10112810, "Transporter": "BARUAH CONSTRUCTION", "TT No.": "AS23CC1615", "Email ID": "baruahconstruction20@gmail.com"}, {"Vendor Code": 10112810, "Transporter": "BARUAH CONSTRUCTION", "TT No.": "AS01GC0161", "Email ID": "baruahconstruction20@gmail.com"}, {"Vendor Code": 10112810, "Transporter": "BARUAH CONSTRUCTION", "TT No.": "AS23BC9536", "Email ID": "baruahconstruction20@gmail.com"}, {"Vendor Code": 11033251, "Transporter": "BASTOBJYOTI MORAN & CO.", "TT No.": "AS23DC3841", "Email ID": "BJMANDCO@GMAIL.COM"}, {"Vendor Code": 11033251, "Transporter": "BASTOBJYOTI MORAN & CO.", "TT No.": "AS23DC3842", "Email ID": "BJMANDCO@GMAIL.COM"}, {"Vendor Code": 11033251, "Transporter": "BASTOBJYOTI MORAN & CO.", "TT No.": "AS23DC3914", "Email ID": "BJMANDCO@GMAIL.COM"}, {"Vendor Code": 11033251, "Transporter": "BASTOBJYOTI MORAN & CO.", "TT No.": "AS23DC3915", "Email ID": "BJMANDCO@GMAIL.COM"}, {"Vendor Code": 11033251, "Transporter": "BASTOBJYOTI MORAN & CO.", "TT No.": "AS23DC3916", "Email ID": "BJMANDCO@GMAIL.COM"}, {"Vendor Code": 11033251, "Transporter": "BASTOBJYOTI MORAN & CO.", "TT No.": "AS23CC0539", "Email ID": "BJMANDCO@GMAIL.COM"}, {"Vendor Code": 11033251, "Transporter": "BASTOBJYOTI MORAN & CO.", "TT No.": "AS23CC0917", "Email ID": "BJMANDCO@GMAIL.COM"}, {"Vendor Code": 11033251, "Transporter": "BASTOBJYOTI MORAN & CO.", "TT No.": "AS23CC4939", "Email ID": "BJMANDCO@GMAIL.COM"}, {"Vendor Code": 11033251, "Transporter": "BASTOBJYOTI MORAN & CO.", "TT No.": "AS23CC5888", "Email ID": "BJMANDCO@GMAIL.COM"}, {"Vendor Code": 11033251, "Transporter": "BASTOBJYOTI MORAN & CO.", "TT No.": "AS23CC6632", "Email ID": "BJMANDCO@GMAIL.COM"}, {"Vendor Code": 11033251, "Transporter": "BASTOBJYOTI MORAN & CO.", "TT No.": "AS23CC9280", "Email ID": "BJMANDCO@GMAIL.COM"}, {"Vendor Code": 11033251, "Transporter": "BASTOBJYOTI MORAN & CO.", "TT No.": "AS23CC9281", "Email ID": "BJMANDCO@GMAIL.COM"}, {"Vendor Code": 11033251, "Transporter": "BASTOBJYOTI MORAN & CO.", "TT No.": "AS23DC3597", "Email ID": "BJMANDCO@GMAIL.COM"}, {"Vendor Code": 10112812, "Transporter": "BINAN & BROTHERS CONSTRUCTION", "TT No.": "AS23DC2952", "Email ID": "MSBINANBROTHERS@GMAIL.COM"}, {"Vendor Code": 10112812, "Transporter": "BINAN & BROTHERS CONSTRUCTION", "TT No.": "AS23DC4024", "Email ID": "MSBINANBROTHERS@GMAIL.COM"}, {"Vendor Code": 10112812, "Transporter": "BINAN & BROTHERS CONSTRUCTION", "TT No.": "AS23DC4156", "Email ID": "MSBINANBROTHERS@GMAIL.COM"}, {"Vendor Code": 10112812, "Transporter": "BINAN & BROTHERS CONSTRUCTION", "TT No.": "AS23DC4157", "Email ID": "MSBINANBROTHERS@GMAIL.COM"}, {"Vendor Code": 10112812, "Transporter": "BINAN & BROTHERS CONSTRUCTION", "TT No.": "AS23DC3361", "Email ID": "MSBINANBROTHERS@GMAIL.COM"}, {"Vendor Code": 11050656, "Transporter": "CHANDRABOTI INDANE GRAMIN VITRAK", "TT No.": "AS23DC3946", "Email ID": "TILENDRADUTTA@GMAIL.COM"}, {"Vendor Code": 11012253, "Transporter": "CHITRAKUT GAS COMPANY", "TT No.": "AS01GC0028", "Email ID": "gchitrakut@gmail.com"}, {"Vendor Code": 11012253, "Transporter": "CHITRAKUT GAS COMPANY", "TT No.": "AS23BC8177", "Email ID": "gchitrakut@gmail.com"}, {"Vendor Code": 11012253, "Transporter": "CHITRAKUT GAS COMPANY", "TT No.": "AS23BC8175", "Email ID": "gchitrakut@gmail.com"}, {"Vendor Code": 11012253, "Transporter": "CHITRAKUT GAS COMPANY", "TT No.": "AS23BC8187", "Email ID": "gchitrakut@gmail.com"}, {"Vendor Code": 11012253, "Transporter": "CHITRAKUT GAS COMPANY", "TT No.": "AS01NC4087", "Email ID": "gchitrakut@gmail.com"}, {"Vendor Code": 11012253, "Transporter": "CHITRAKUT GAS COMPANY", "TT No.": "AS01NC4067", "Email ID": "gchitrakut@gmail.com"}, {"Vendor Code": 11012253, "Transporter": "CHITRAKUT GAS COMPANY", "TT No.": "AS23CC3387", "Email ID": "gchitrakut@gmail.com"}, {"Vendor Code": 11012253, "Transporter": "CHITRAKUT GAS COMPANY", "TT No.": "AS23CC4977", "Email ID": "gchitrakut@gmail.com"}, {"Vendor Code": 11012253, "Transporter": "CHITRAKUT GAS COMPANY", "TT No.": "AS23AC4327", "Email ID": "gchitrakut@gmail.com"}, {"Vendor Code": 11012253, "Transporter": "CHITRAKUT GAS COMPANY", "TT No.": "AS23DC3785", "Email ID": "gchitrakut@gmail.com"}, {"Vendor Code": 11012253, "Transporter": "CHITRAKUT GAS COMPANY", "TT No.": "AS23AC5853", "Email ID": "gchitrakut@gmail.com"}, {"Vendor Code": 11012253, "Transporter": "CHITRAKUT GAS COMPANY", "TT No.": "AS23DC3789", "Email ID": "gchitrakut@gmail.com"}, {"Vendor Code": 11048794, "Transporter": "CHOWMANG INDANE SERVICE", "TT No.": "AS23CC7991", "Email ID": "chowmang.indane@gmail.com"}, {"Vendor Code": 11025331, "Transporter": "DALIMI SONOWAL", "TT No.": "AS23BC3709", "Email ID": "SONOWALDALIMI@GMAIL.COM"}, {"Vendor Code": 11025331, "Transporter": "DALIMI SONOWAL", "TT No.": "AS23BC3839", "Email ID": "SONOWALDALIMI@GMAIL.COM"}, {"Vendor Code": 11950800, "Transporter": "DEBOJYOTI BORAH", "TT No.": "AS07AC8433", "Email ID": "DEBOJYOTIDJN@GMAIL.COM"}, {"Vendor Code": 11950800, "Transporter": "DEBOJYOTI BORAH", "TT No.": "AS25EC3928", "Email ID": "DEBOJYOTIDJN@GMAIL.COM"}, {"Vendor Code": 11050643, "Transporter": "DEBOJYOTI BORAH", "TT No.": "AS07AC8433", "Email ID": "DEBOJYOTIDJN@GMAIL.COM"}, {"Vendor Code": 11050643, "Transporter": "DEBOJYOTI BORAH", "TT No.": "AS25EC3928", "Email ID": "DEBOJYOTIDJN@GMAIL.COM"}, {"Vendor Code": 11050665, "Transporter": "DHAN INDANE GRAMIN VITRAK", "TT No.": "AS06CC4893", "Email ID": "JUGALPHUKAN25@GMAIL.COM"}, {"Vendor Code": 11012295, "Transporter": "DIBRUGARH GAS SUPPLY", "TT No.": "AS01GC0351", "Email ID": "GASSUPPLYDIBRUGARH@GMAIL.COM"}, {"Vendor Code": 11022732, "Transporter": "DONYIPOLO GAS AGENCY", "TT No.": "AS06CC4798", "Email ID": "DONYIPOLOBEDCOLLEGE@GMAIL.COM"}, {"Vendor Code": 11022732, "Transporter": "DONYIPOLO GAS AGENCY", "TT No.": "AS07BC6135", "Email ID": "DONYIPOLOBEDCOLLEGE@GMAIL.COM"}, {"Vendor Code": 11022732, "Transporter": "DONYIPOLO GAS AGENCY", "TT No.": "AS07BC8756", "Email ID": "DONYIPOLOBEDCOLLEGE@GMAIL.COM"}, {"Vendor Code": 11012314, "Transporter": "DULEN GAS AGENCY", "TT No.": "AS07AC9354", "Email ID": "DGA_TRAVELS@REDIFFMAIL.COM"}, {"Vendor Code": 11012314, "Transporter": "DULEN GAS AGENCY", "TT No.": "AS07AC9355", "Email ID": "DGA_TRAVELS@REDIFFMAIL.COM"}, {"Vendor Code": 11012314, "Transporter": "DULEN GAS AGENCY", "TT No.": "AS07C8415", "Email ID": "DGA_TRAVELS@REDIFFMAIL.COM"}, {"Vendor Code": 11915282, "Transporter": "EAST INDANE", "TT No.": "AS25FC4397", "Email ID": "eastindane999@gmail.com"}, {"Vendor Code": 11050321, "Transporter": "EAST INDANE", "TT No.": "AS25FC4397", "Email ID": "eastindane999@gmail.com"}, {"Vendor Code": 11050321, "Transporter": "EAST INDANE", "TT No.": "AS25FC6968", "Email ID": "eastindane999@gmail.com"}, {"Vendor Code": 11050321, "Transporter": "EAST INDANE", "TT No.": "NL01K8992", "Email ID": "eastindane999@gmail.com"}, {"Vendor Code": 11012351, "Transporter": "GASCO AGENCIES", "TT No.": "AS09C9357", "Email ID": ""}, {"Vendor Code": 11012351, "Transporter": "GASCO AGENCIES", "TT No.": "AS09C9358", "Email ID": ""}, {"Vendor Code": 11039377, "Transporter": "GOGOI ENTERPRISE", "TT No.": "AS06CC4706", "Email ID": "DIPONGO2011@GMAIL.COM"}, {"Vendor Code": 11050763, "Transporter": "GOGOI GRAMIN INDANE VITRAK", "TT No.": "AS05AC5744", "Email ID": "GOGOIGASBARUABAMUNGAON@GMAIL.COM"}, {"Vendor Code": 11050320, "Transporter": "GUIJAN INDANE GRAMIN VITRAK", "TT No.": "AS23CC1888", "Email ID": "GUIJANINDANE@GMAIL.COM"}, {"Vendor Code": 11050764, "Transporter": "HAYULIANG INDANDE GRAMIN VITRAK", "TT No.": "AR11B0689", "Email ID": "HAYULIANGINDANE319294@GMAIL.COM"}, {"Vendor Code": 11046570, "Transporter": "HAZARIKA INDANE GRAMIN VITRAK", "TT No.": "AS01LC3025", "Email ID": "LHAZARIKA47@GMAIL.COM"}, {"Vendor Code": 11046570, "Transporter": "HAZARIKA INDANE GRAMIN VITRAK", "TT No.": "AS01SC0417", "Email ID": "LHAZARIKA47@GMAIL.COM"}, {"Vendor Code": 11050645, "Transporter": "HEM-LEE INDANE GRAMIN VITRAK", "TT No.": "AS23DC2795", "Email ID": "MADHOBCHETIA@GMAIL.COM"}, {"Vendor Code": 11050645, "Transporter": "HEM-LEE INDANE GRAMIN VITRAK", "TT No.": "AS23DC2955", "Email ID": "MADHOBCHETIA@GMAIL.COM"}, {"Vendor Code": 11012406, "Transporter": "IMMANUEL GAS SERVICE", "TT No.": "NL02Q8604", "Email ID": "IMMANUELGAS@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS01RC8751", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS23DC4155", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS23DC4168", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS01LC5657", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS23CC0504", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS23CC0828", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS23CC1112", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS23CC1162", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS23DC2204", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS23DC2953", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS23DC3586", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS23DC3587", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS23DC3588", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS23DC3730", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS23DC4154", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS01HC9672", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11039381, "Transporter": "JAY AAM ENTERPRISE", "TT No.": "AS01HC9691", "Email ID": "JYOTISHMUNU@GMAIL.COM"}, {"Vendor Code": 11050672, "Transporter": "JOKAI INDANE GRAMIN VITRAK", "TT No.": "AS06CC4895", "Email ID": "JOKAI.INDANE@GMAIL.COM"}, {"Vendor Code": 11032873, "Transporter": "JOY INDANE GAS AGENCY", "TT No.": "AS01JC2268", "Email ID": "joyindanegas@gmail.com"}, {"Vendor Code": 11032873, "Transporter": "JOY INDANE GAS AGENCY", "TT No.": "AS06CC4391", "Email ID": "joyindanegas@gmail.com"}, {"Vendor Code": 11032873, "Transporter": "JOY INDANE GAS AGENCY", "TT No.": "NL04D6050", "Email ID": "joyindanegas@gmail.com"}, {"Vendor Code": 11050378, "Transporter": "KIRAN SHAHI", "TT No.": "AS01EC2071", "Email ID": "SHAHIKIRAN17@GMAIL.COM"}, {"Vendor Code": 11050378, "Transporter": "KIRAN SHAHI", "TT No.": "AS01NC2543", "Email ID": "SHAHIKIRAN17@GMAIL.COM"}, {"Vendor Code": 11050378, "Transporter": "KIRAN SHAHI", "TT No.": "AS01QC7618", "Email ID": "SHAHIKIRAN17@GMAIL.COM"}, {"Vendor Code": 11050378, "Transporter": "KIRAN SHAHI", "TT No.": "AS22C3937", "Email ID": "SHAHIKIRAN17@GMAIL.COM"}, {"Vendor Code": 11050378, "Transporter": "KIRAN SHAHI", "TT No.": "MN02B9655", "Email ID": "SHAHIKIRAN17@GMAIL.COM"}, {"Vendor Code": 11050378, "Transporter": "KIRAN SHAHI", "TT No.": "MN02B9656", "Email ID": "SHAHIKIRAN17@GMAIL.COM"}, {"Vendor Code": 11050658, "Transporter": "KRISHNA GURU INDANE GRAMIN VITRAK", "TT No.": "AS33C2118", "Email ID": "KRISHNAGURU488@GMAIL.COM"}, {"Vendor Code": 11012507, "Transporter": "KUSHAL KONWAR", "TT No.": "AS06AC6552", "Email ID": "KONWAR100@YAHOO.CO.IN"}, {"Vendor Code": 11012507, "Transporter": "KUSHAL KONWAR", "TT No.": "AS06BC9646", "Email ID": "KONWAR100@YAHOO.CO.IN"}, {"Vendor Code": 10233266, "Transporter": "M.B. ENTERPRISE", "TT No.": "AS01GC0197", "Email ID": "MORANBOLIN01@GMAIL.COM"}, {"Vendor Code": 10233266, "Transporter": "M.B. ENTERPRISE", "TT No.": "AS19C7385", "Email ID": "MORANBOLIN01@GMAIL.COM"}, {"Vendor Code": 10233266, "Transporter": "M.B. ENTERPRISE", "TT No.": "AS19C7399", "Email ID": "MORANBOLIN01@GMAIL.COM"}, {"Vendor Code": 10233266, "Transporter": "M.B. ENTERPRISE", "TT No.": "AS23CC8473", "Email ID": "MORANBOLIN01@GMAIL.COM"}, {"Vendor Code": 10233266, "Transporter": "M.B. ENTERPRISE", "TT No.": "AS23CC8474", "Email ID": "MORANBOLIN01@GMAIL.COM"}, {"Vendor Code": 10233266, "Transporter": "M.B. ENTERPRISE", "TT No.": "AS23CC9037", "Email ID": "MORANBOLIN01@GMAIL.COM"}, {"Vendor Code": 10233266, "Transporter": "M.B. ENTERPRISE", "TT No.": "AS23CC9038", "Email ID": "MORANBOLIN01@GMAIL.COM"}, {"Vendor Code": 10233266, "Transporter": "M.B. ENTERPRISE", "TT No.": "AS23DC2139", "Email ID": "MORANBOLIN01@GMAIL.COM"}, {"Vendor Code": 10233266, "Transporter": "M.B. ENTERPRISE", "TT No.": "NL02N9640", "Email ID": "MORANBOLIN01@GMAIL.COM"}, {"Vendor Code": 10233266, "Transporter": "M.B. ENTERPRISE", "TT No.": "AS01QC6147", "Email ID": "MORANBOLIN01@GMAIL.COM"}, {"Vendor Code": 10233266, "Transporter": "M.B. ENTERPRISE", "TT No.": "AS23DC3463", "Email ID": "MORANBOLIN01@GMAIL.COM"}, {"Vendor Code": 10233266, "Transporter": "M.B. ENTERPRISE", "TT No.": "AS23DC4171", "Email ID": "MORANBOLIN01@GMAIL.COM"}, {"Vendor Code": 10233266, "Transporter": "M.B. ENTERPRISE", "TT No.": "AS23DC4174", "Email ID": "MORANBOLIN01@GMAIL.COM"}, {"Vendor Code": 11035429, "Transporter": "MANDEEP SINGH", "TT No.": "AS01EC6609", "Email ID": "BHUNESWAR.PASIGHAT@GMAIL.COM"}, {"Vendor Code": 11035429, "Transporter": "MANDEEP SINGH", "TT No.": "AS06BC7191", "Email ID": "BHUNESWAR.PASIGHAT@GMAIL.COM"}, {"Vendor Code": 11035429, "Transporter": "MANDEEP SINGH", "TT No.": "AS01PC6265", "Email ID": "BHUNESWAR.PASIGHAT@GMAIL.COM"}, {"Vendor Code": 11012576, "Transporter": "MANPOONG GAS AGENCIES", "TT No.": "AS23BC3790", "Email ID": "CHOWLIK_MANPOONG@YAHOO.COM"}, {"Vendor Code": 11012576, "Transporter": "MANPOONG GAS AGENCIES", "TT No.": "AS23AC6002", "Email ID": "CHOWLIK_MANPOONG@YAHOO.COM"}, {"Vendor Code": 11012576, "Transporter": "MANPOONG GAS AGENCIES", "TT No.": "AS23BC2549", "Email ID": "CHOWLIK_MANPOONG@YAHOO.COM"}, {"Vendor Code": 11012576, "Transporter": "MANPOONG GAS AGENCIES", "TT No.": "AR209194", "Email ID": "CHOWLIK_MANPOONG@YAHOO.COM"}, {"Vendor Code": 11012576, "Transporter": "MANPOONG GAS AGENCIES", "TT No.": "AR209195", "Email ID": "CHOWLIK_MANPOONG@YAHOO.COM"}, {"Vendor Code": 11038553, "Transporter": "MEPUNG INDANE GRAMIN VITARAK", "TT No.": "AS32C2048", "Email ID": "MEPUNGINDANE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23DC3908", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23DC4001", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23DC4007", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23DC4131", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23DC4158", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23DC4159", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23DC4160", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23DC4161", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23DC4167", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23DC4177", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS01HC9757", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS06BC4509", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23BC6783", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23BC8203", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23BC8685", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23CC1072", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23CC9634", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23DC3643", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23DC3693", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23DC3736", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 10153271, "Transporter": "Modin Ch. Moran Enterprise", "TT No.": "AS23CC9635", "Email ID": "MODINENTERPRISE@GMAIL.COM"}, {"Vendor Code": 11050650, "Transporter": "MONALISHA INDANE GRAMIN VITRAK", "TT No.": "AS05AC5419", "Email ID": "SUDARSHAN18B@GMAIL.COM"}, {"Vendor Code": 11050655, "Transporter": "MORANGI INDANE GRAMIN VITRAK", "TT No.": "AS05AC5548", "Email ID": "RANAJITHAZARIKA@GMAIL.COM"}, {"Vendor Code": 11012629, "Transporter": "MUNIN GAS AGENCY", "TT No.": "AS07AC7131", "Email ID": "MUNIN.GASAGENCY@REDIFFMAIL.COM"}, {"Vendor Code": 11012629, "Transporter": "MUNIN GAS AGENCY", "TT No.": "AS07AC7141", "Email ID": "MUNIN.GASAGENCY@REDIFFMAIL.COM"}, {"Vendor Code": 11050666, "Transporter": "NANDITA INDANE GRAMIN VITRAK", "TT No.": "AS04CC0251", "Email ID": "GAYANPULIN@YAHOO.COM"}, {"Vendor Code": 11025364, "Transporter": "NARAYANPUR GAS AGENCY", "TT No.": "AS07BC6778", "Email ID": "BEDABRAT.BH@GMAIL.COM"}, {"Vendor Code": 11025364, "Transporter": "NARAYANPUR GAS AGENCY", "TT No.": "AS01RC2910", "Email ID": "BEDABRAT.BH@GMAIL.COM"}, {"Vendor Code": 11025364, "Transporter": "NARAYANPUR GAS AGENCY", "TT No.": "AS07C2991", "Email ID": "BEDABRAT.BH@GMAIL.COM"}, {"Vendor Code": 11048516, "Transporter": "Prima Das", "TT No.": "AS01QC6579", "Email ID": "dasprima2021@gmail.com"}, {"Vendor Code": 11048516, "Transporter": "Prima Das", "TT No.": "AS06BC1424", "Email ID": "dasprima2021@gmail.com"}, {"Vendor Code": 11050342, "Transporter": "PUNAM PRASAD", "TT No.": "AS06BC4737", "Email ID": "RANJITSAHANI9988@GMAIL.COM"}, {"Vendor Code": 11050342, "Transporter": "PUNAM PRASAD", "TT No.": "AS23BC5392", "Email ID": "RANJITSAHANI9988@GMAIL.COM"}, {"Vendor Code": 11012783, "Transporter": "RAJLAKSHMI GAS SERVICE", "TT No.": "AS01KC1961", "Email ID": "RAJLAKSHMI.MAJULI@GMAIL.COM"}, {"Vendor Code": 11012783, "Transporter": "RAJLAKSHMI GAS SERVICE", "TT No.": "AS01KC1981", "Email ID": "RAJLAKSHMI.MAJULI@GMAIL.COM"}, {"Vendor Code": 11012783, "Transporter": "RAJLAKSHMI GAS SERVICE", "TT No.": "AS01MC2171", "Email ID": "RAJLAKSHMI.MAJULI@GMAIL.COM"}, {"Vendor Code": 11012783, "Transporter": "RAJLAKSHMI GAS SERVICE", "TT No.": "AS02CC7349", "Email ID": "RAJLAKSHMI.MAJULI@GMAIL.COM"}, {"Vendor Code": 11012783, "Transporter": "RAJLAKSHMI GAS SERVICE", "TT No.": "AS03AC4692", "Email ID": "RAJLAKSHMI.MAJULI@GMAIL.COM"}, {"Vendor Code": 11012783, "Transporter": "RAJLAKSHMI GAS SERVICE", "TT No.": "AS03AC5214", "Email ID": "RAJLAKSHMI.MAJULI@GMAIL.COM"}, {"Vendor Code": 11012783, "Transporter": "RAJLAKSHMI GAS SERVICE", "TT No.": "AS01PC9536", "Email ID": "RAJLAKSHMI.MAJULI@GMAIL.COM"}, {"Vendor Code": 11012783, "Transporter": "RAJLAKSHMI GAS SERVICE", "TT No.": "AS03AC4647", "Email ID": "RAJLAKSHMI.MAJULI@GMAIL.COM"}, {"Vendor Code": 11012790, "Transporter": "RANDHAN GAS AGENCY", "TT No.": "AS23BC8464", "Email ID": "pgohain@hotmail.com"}, {"Vendor Code": 11025377, "Transporter": "RISHIKESH INDANE SERVICE", "TT No.": "AS01RC6802", "Email ID": "rishikeshagency@gmail.com"}, {"Vendor Code": 11025377, "Transporter": "RISHIKESH INDANE SERVICE", "TT No.": "AS01RC6803", "Email ID": "rishikeshagency@gmail.com"}, {"Vendor Code": 11025377, "Transporter": "RISHIKESH INDANE SERVICE", "TT No.": "AS01RC6804", "Email ID": "rishikeshagency@gmail.com"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS01GC0163", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS01HC9670", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS01HC9684", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS01HC9717", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS01HC9719", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS23BC8160", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS23BC8162", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS23BC8170", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS23CC0616", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS23CC0694", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS23CC3334", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS23CC7832", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS23DC3706", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS23DC3942", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11039396, "Transporter": "RUP ENTERPRISE", "TT No.": "AS23DC3945", "Email ID": "ENTERPRISERUP@GMAIL.COM"}, {"Vendor Code": 11050664, "Transporter": "SABITA INDANE GRAMIN VITRAK", "TT No.": "AS23DC3661", "Email ID": "SABITAINDANEVITRAK@GMAIL.COM"}, {"Vendor Code": 11050664, "Transporter": "SABITA INDANE GRAMIN VITRAK", "TT No.": "AS23DC3701", "Email ID": "SABITAINDANEVITRAK@GMAIL.COM"}, {"Vendor Code": 11050664, "Transporter": "SABITA INDANE GRAMIN VITRAK", "TT No.": "AS23DC4051", "Email ID": "SABITAINDANEVITRAK@GMAIL.COM"}, {"Vendor Code": 11050664, "Transporter": "SABITA INDANE GRAMIN VITRAK", "TT No.": "AS23DC4061", "Email ID": "SABITAINDANEVITRAK@GMAIL.COM"}, {"Vendor Code": 11013271, "Transporter": "SAIKIA GAS SERVICE", "TT No.": "AS01GC8772", "Email ID": "SAIKIAGAS@GMAIL.COM"}, {"Vendor Code": 11013271, "Transporter": "SAIKIA GAS SERVICE", "TT No.": "AS01GC8773", "Email ID": "SAIKIAGAS@GMAIL.COM"}, {"Vendor Code": 11013271, "Transporter": "SAIKIA GAS SERVICE", "TT No.": "AS01GC8776", "Email ID": "SAIKIAGAS@GMAIL.COM"}, {"Vendor Code": 11013271, "Transporter": "SAIKIA GAS SERVICE", "TT No.": "AS03AC4114", "Email ID": "SAIKIAGAS@GMAIL.COM"}, {"Vendor Code": 11050702, "Transporter": "SAIKIA GAS SERVICE", "TT No.": "AS01GC8772", "Email ID": "SAIKIAGAS@GMAIL.COM"}, {"Vendor Code": 11050702, "Transporter": "SAIKIA GAS SERVICE", "TT No.": "AS01SC7471", "Email ID": "SAIKIAGAS@GMAIL.COM"}, {"Vendor Code": 11050702, "Transporter": "SAIKIA GAS SERVICE", "TT No.": "AS01SC7473", "Email ID": "SAIKIAGAS@GMAIL.COM"}, {"Vendor Code": 11050702, "Transporter": "SAIKIA GAS SERVICE", "TT No.": "AS01SC7472", "Email ID": "SAIKIAGAS@GMAIL.COM"}, {"Vendor Code": 11050702, "Transporter": "SAIKIA GAS SERVICE", "TT No.": "AS01GC8773", "Email ID": "SAIKIAGAS@GMAIL.COM"}, {"Vendor Code": 11050702, "Transporter": "SAIKIA GAS SERVICE", "TT No.": "AS03AC4114", "Email ID": "SAIKIAGAS@GMAIL.COM"}, {"Vendor Code": 11050702, "Transporter": "SAIKIA GAS SERVICE", "TT No.": "AS01GC8776", "Email ID": "SAIKIAGAS@GMAIL.COM"}, {"Vendor Code": 11012843, "Transporter": "SANGGO GAS AGENCY", "TT No.": "AR09A4877", "Email ID": "TANGORTAPAK01@GMAIL.COM"}, {"Vendor Code": 11012843, "Transporter": "SANGGO GAS AGENCY", "TT No.": "AR09B0557", "Email ID": "TANGORTAPAK01@GMAIL.COM"}, {"Vendor Code": 11012843, "Transporter": "SANGGO GAS AGENCY", "TT No.": "AR09C9517", "Email ID": "TANGORTAPAK01@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS01HC9734", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS01HC9743", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS23AC6330", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS23BC6766", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS23BC8188", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS23CC0252", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS23CC2537", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS01HC9688", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS23BC6833", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS23BC8182", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS19C7384", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS23BC6655", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS23DC3488", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS23DC3489", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS23DC3733", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS23DC3734", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS01GC0164", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS01MC0575", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS01HC8807", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS19C7396", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "NL02N7660", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "AS23CC1017", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "NL08D3467", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11042657, "Transporter": "SARASWATI INDANE GRAMIN VITRAK", "TT No.": "NL08D3468", "Email ID": "SARASWATIINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11050068, "Transporter": "SHANTI GAS AGENCY", "TT No.": "AS01GC0352", "Email ID": "SHANTI.GASAGENCY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS06CC4447", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3414", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3454", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3455", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3459", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3471", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3472", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3473", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS02BC8947", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3119", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3339", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3026", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3037", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3038", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3047", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS01NC6372", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS07C8281", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23CC1870", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3272", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS01NC6371", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23CC1542", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23CC1882", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23CC1885", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23CC1892", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS02DC5333", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3095", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS02DC5502", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3474", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC4284", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC4283", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC4281", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC4265", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC4282", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC4264", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC4005", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS06CC4886", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC4074", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC3917", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC4971", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC5222", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC5099", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC5823", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23CC1879", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23CC1876", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23CC1883", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23CC1890", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS19C7381", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS04BC9740", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS03CC5567", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC2958", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS01QC5898", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC2955", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS02BC8948", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23CC1874", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS23DC1172", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11048231, "Transporter": "SHREE GANESH ENTERPRISE", "TT No.": "AS02BC8951", "Email ID": "ASSAMPUBLICACADMY@GMAIL.COM"}, {"Vendor Code": 11050322, "Transporter": "SHREE RAM ENTERPRISES", "TT No.": "AS01QC3831", "Email ID": "kiranagarwala92@gmail.com"}, {"Vendor Code": 11050322, "Transporter": "SHREE RAM ENTERPRISES", "TT No.": "AS01QC5517", "Email ID": "kiranagarwala92@gmail.com"}, {"Vendor Code": 11050322, "Transporter": "SHREE RAM ENTERPRISES", "TT No.": "AS23AC3603", "Email ID": "kiranagarwala92@gmail.com"}, {"Vendor Code": 11050322, "Transporter": "SHREE RAM ENTERPRISES", "TT No.": "AS23AC4578", "Email ID": "kiranagarwala92@gmail.com"}, {"Vendor Code": 11050322, "Transporter": "SHREE RAM ENTERPRISES", "TT No.": "AS23DC3486", "Email ID": "kiranagarwala92@gmail.com"}, {"Vendor Code": 11050322, "Transporter": "SHREE RAM ENTERPRISES", "TT No.": "AS01QC3832", "Email ID": "kiranagarwala92@gmail.com"}, {"Vendor Code": 11049051, "Transporter": "SIANG GAS AGENCY", "TT No.": "AR08B5131", "Email ID": "sianggasagencyaalo@gmail.com"}, {"Vendor Code": 11049051, "Transporter": "SIANG GAS AGENCY", "TT No.": "AS06CC4689", "Email ID": "sianggasagencyaalo@gmail.com"}, {"Vendor Code": 11013110, "Transporter": "SUBANSIRI GAS AGENCY", "TT No.": "AS01KC0744", "Email ID": "devajanisonowal@gmail.com"}, {"Vendor Code": 11013110, "Transporter": "SUBANSIRI GAS AGENCY", "TT No.": "AS01KC2285", "Email ID": "devajanisonowal@gmail.com"}, {"Vendor Code": 11013110, "Transporter": "SUBANSIRI GAS AGENCY", "TT No.": "AS01NC1721", "Email ID": "devajanisonowal@gmail.com"}, {"Vendor Code": 11013110, "Transporter": "SUBANSIRI GAS AGENCY", "TT No.": "AS01DC2454", "Email ID": "devajanisonowal@gmail.com"}, {"Vendor Code": 11050358, "Transporter": "SUDHA GUPTA", "TT No.": "AS01JC2289", "Email ID": "SUDHA88PRACHI@GMAIL.COM"}, {"Vendor Code": 11050358, "Transporter": "SUDHA GUPTA", "TT No.": "AS01QC6482", "Email ID": "SUDHA88PRACHI@GMAIL.COM"}, {"Vendor Code": 11050358, "Transporter": "SUDHA GUPTA", "TT No.": "AS01QC6715", "Email ID": "SUDHA88PRACHI@GMAIL.COM"}, {"Vendor Code": 11050358, "Transporter": "SUDHA GUPTA", "TT No.": "AS06BC8311", "Email ID": "SUDHA88PRACHI@GMAIL.COM"}, {"Vendor Code": 11050358, "Transporter": "SUDHA GUPTA", "TT No.": "AS06BC8325", "Email ID": "SUDHA88PRACHI@GMAIL.COM"}, {"Vendor Code": 11050358, "Transporter": "SUDHA GUPTA", "TT No.": "AS07AC8435", "Email ID": "SUDHA88PRACHI@GMAIL.COM"}, {"Vendor Code": 11050644, "Transporter": "SUNPURA INDANE GRAMIN VITRAK", "TT No.": "AS23DC3096", "Email ID": "RAJUHARI.BHATTARAI5@GMAIL.COM"}, {"Vendor Code": 11033185, "Transporter": "TAPAN MORAN & CO.", "TT No.": "AS01GC0192", "Email ID": "MSTAPANMORANGOP@GMAIL.COM"}, {"Vendor Code": 11033185, "Transporter": "TAPAN MORAN & CO.", "TT No.": "AS01HC9689", "Email ID": "MSTAPANMORANGOP@GMAIL.COM"}, {"Vendor Code": 11033185, "Transporter": "TAPAN MORAN & CO.", "TT No.": "AS23CC0522", "Email ID": "MSTAPANMORANGOP@GMAIL.COM"}, {"Vendor Code": 11033185, "Transporter": "TAPAN MORAN & CO.", "TT No.": "AS23CC0827", "Email ID": "MSTAPANMORANGOP@GMAIL.COM"}, {"Vendor Code": 11033185, "Transporter": "TAPAN MORAN & CO.", "TT No.": "AS23CC7735", "Email ID": "MSTAPANMORANGOP@GMAIL.COM"}, {"Vendor Code": 11033185, "Transporter": "TAPAN MORAN & CO.", "TT No.": "AS23CC7374", "Email ID": "MSTAPANMORANGOP@GMAIL.COM"}, {"Vendor Code": 11032882, "Transporter": "TITABOR GAS AGENCY", "TT No.": "AS19C7379", "Email ID": "AMRITMILI6@GMAIL.COM"}, {"Vendor Code": 11032882, "Transporter": "TITABOR GAS AGENCY", "TT No.": "AS19C7380", "Email ID": "AMRITMILI6@GMAIL.COM"}, {"Vendor Code": 11032882, "Transporter": "TITABOR GAS AGENCY", "TT No.": "AS19C7386", "Email ID": "AMRITMILI6@GMAIL.COM"}, {"Vendor Code": 11050319, "Transporter": "UDAYANANDA BORUAH", "TT No.": "AS04BC9737", "Email ID": "PROSEBORUAH@GMAIL.COM"}, {"Vendor Code": 11042683, "Transporter": "VALLEY FLAME AGENCY", "TT No.": "AS01GC0132", "Email ID": "VALLEYFLAMEAGENCY@GMAIL.COM"}, {"Vendor Code": 11051009, "Transporter": "VALLEY FLAME AGENCY", "TT No.": "AS01GC0132", "Email ID": "VALLEYFLAMEAGENCY@GMAIL.COM"}, {"Vendor Code": 11044501, "Transporter": "VIDYA SAGAR GUPTA", "TT No.": "AS01KC9267", "Email ID": "GUPTA82SAGAR@GMAIL.COM"}, {"Vendor Code": 11044501, "Transporter": "VIDYA SAGAR GUPTA", "TT No.": "AS23CC0959", "Email ID": "GUPTA82SAGAR@GMAIL.COM"}, {"Vendor Code": 11050620, "Transporter": "WAKRO INDANE GRAMIN VITRAK", "TT No.": "AS23DC2709", "Email ID": "WAKROINDANEGRAMINVITRAK@GMAIL.COM"}, {"Vendor Code": 11924454, "Transporter": "WANGCHA GAS AGENCY", "TT No.": "AS23BC4277", "Email ID": "SUSHILSHAH2471989@GMAIL.COM"}];
+
+  // Silent-send backend (Google Apps Script Web App deployed under 7b05.stores@gmail.com).
+  // Must match the SHARED_SECRET value set in EmailBackend.gs.
+  var WEBAPP_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+  var SHARED_SECRET = "fZYJb8MuHgiUpF8oGwshbV05XPe42ACS";
+
+  function normalize(v) {
+    return (v || "").toString().toUpperCase().replace(/[\s\-]/g, "").trim();
+  }
+
+  var vendorIndex = {};
+  var vendorConflicts = {};
+  VENDOR_DATA.forEach(function (row) {
+    var key = normalize(row["TT No."]);
+    if (vendorIndex[key] && vendorIndex[key]["Email ID"] !== row["Email ID"]) vendorConflicts[key] = true;
+    if (!vendorIndex[key]) vendorIndex[key] = row;
+  });
+
+  var ttList = document.getElementById("ttList");
+  var seen = {};
+  VENDOR_DATA.forEach(function (row) {
+    var tt = row["TT No."];
+    if (!seen[tt]) { seen[tt] = true; var opt = document.createElement("option"); opt.value = tt; ttList.appendChild(opt); }
+  });
+
+  var ALERT_TYPES = [
+    ["SHARP_TURN", "Sharp turn"],
+    ["HARSH_BRAKING", "Harsh braking"],
+    ["UNAUTHORISED_HALT", "Unauthorised halt"],
+    ["CONTINUOUS_DRIVING", "Continuous driving"],
+    ["ROUTE_DEVIATION", "Route deviation"],
+    ["OVERSPEEDING", "Overspeeding"],
+    ["NIGHT_DRIVING", "Night driving"],
+    ["DEVICE_OFF", "Device off"]
+  ];
+
+  var selectedAlerts = new Set();
+
+  var ddToggle = document.getElementById("ddToggle");
+  var ddPanel = document.getElementById("ddPanel");
+  var ddBadge = document.getElementById("ddBadge");
+  var ddLabel = document.getElementById("ddLabel");
+
+  ALERT_TYPES.forEach(function (pair) {
+    var code = pair[0], label = pair[1];
+    var opt = document.createElement("label");
+    opt.className = "opt";
+    var cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = code;
+    cb.addEventListener("change", function () {
+      if (cb.checked) selectedAlerts.add(code); else selectedAlerts.delete(code);
+      updateDropdownLabel();
+      updateNotifyState();
+    });
+    var txt = document.createElement("span");
+    txt.textContent = label;
+    opt.appendChild(cb);
+    opt.appendChild(txt);
+    ddPanel.appendChild(opt);
+  });
+
+  var ddActions = document.createElement("div");
+  ddActions.className = "dd-actions";
+  var allBtn = document.createElement("button");
+  allBtn.type = "button"; allBtn.textContent = "Select all";
+  allBtn.addEventListener("click", function () {
+    selectedAlerts = new Set(ALERT_TYPES.map(function (p) { return p[0]; }));
+    ddPanel.querySelectorAll("input[type=checkbox]").forEach(function (c) { c.checked = true; });
+    updateDropdownLabel(); updateNotifyState();
+  });
+  var noneBtn = document.createElement("button");
+  noneBtn.type = "button"; noneBtn.textContent = "Clear";
+  noneBtn.addEventListener("click", function () {
+    selectedAlerts = new Set();
+    ddPanel.querySelectorAll("input[type=checkbox]").forEach(function (c) { c.checked = false; });
+    updateDropdownLabel(); updateNotifyState();
+  });
+  ddActions.appendChild(allBtn);
+  ddActions.appendChild(noneBtn);
+  ddPanel.appendChild(ddActions);
+
+  function updateDropdownLabel() {
+    ddBadge.textContent = selectedAlerts.size;
+    ddLabel.textContent = selectedAlerts.size ? (selectedAlerts.size + " alert type" + (selectedAlerts.size === 1 ? "" : "s") + " selected") : "Select alerts";
+  }
+
+  ddToggle.addEventListener("click", function (e) {
+    e.stopPropagation();
+    ddPanel.classList.toggle("hidden");
+  });
+  document.addEventListener("click", function () { ddPanel.classList.add("hidden"); });
+  ddPanel.addEventListener("click", function (e) { e.stopPropagation(); });
+
+  var vehicleInput = document.getElementById("vehicleInput");
+  var matchBox = document.getElementById("matchBox");
+  var notifyBtn = document.getElementById("notifyBtn");
+  var currentVendor = null;
+
+  function checkVehicle() {
+    var raw = vehicleInput.value.trim();
+    if (!raw) { matchBox.classList.remove("show"); currentVendor = null; updateNotifyState(); return; }
+    var key = normalize(raw);
+    var conflict = vendorConflicts[key];
+    var vendor = vendorIndex[key];
+    matchBox.classList.add("show");
+
+    if (conflict) {
+      matchBox.className = "match-box show warn";
+      matchBox.innerHTML = "Multiple vendor records for this TT No. with different emails — resolve the conflict before notifying.";
+      currentVendor = null;
+    } else if (!vendor) {
+      matchBox.className = "match-box show warn";
+      matchBox.innerHTML = "No vendor match found for \"" + raw + "\".";
+      currentVendor = null;
+    } else if (!vendor["Email ID"]) {
+      matchBox.className = "match-box show warn";
+      matchBox.innerHTML = "<span class='transporter'>" + vendor.Transporter + "</span> — no email on file.";
+      currentVendor = null;
+    } else {
+      matchBox.className = "match-box show ok";
+      matchBox.innerHTML = "<span class='transporter'>" + vendor.Transporter + "</span><br><span class='email'>" + vendor["Email ID"] + "</span>";
+      currentVendor = vendor;
+    }
+    updateNotifyState();
+  }
+  vehicleInput.addEventListener("input", checkVehicle);
+  vehicleInput.addEventListener("change", checkVehicle);
+
+  function updateNotifyState() {
+    var canBuild = !!currentVendor && selectedAlerts.size > 0;
+    buildBtn.disabled = !canBuild;
+    // Any change to vehicle or alert selection invalidates an already-built draft.
+    draftFields.style.display = "none";
+    notifyBtn.disabled = true;
+  }
+
+  var buildBtn = document.getElementById("buildBtn");
+  var draftFields = document.getElementById("draftFields");
+  var ccInput = document.getElementById("ccInput");
+  ccInput.value = "ksolei@indianoil.in, DasJ4@indianoil.in, MAURYARK1@indianoil.in, baruahrl@indianoil.in";
+  var subjectInput = document.getElementById("subjectInput");
+  var bodyInput = document.getElementById("bodyInput");
+
+  function labelFor(code) {
+    for (var i = 0; i < ALERT_TYPES.length; i++) if (ALERT_TYPES[i][0] === code) return ALERT_TYPES[i][1];
+    return code;
+  }
+
+  buildBtn.addEventListener("click", function () {
+    if (!currentVendor || !selectedAlerts.size) return;
+    var vehicle = vehicleInput.value.trim().toUpperCase();
+    var codes = Array.from(selectedAlerts);
+    var alertList = codes.map(function (c) { return "- *" + labelFor(c) + "*"; }).join("\n");
+
+    subjectInput.value = "VTS Alert Notification - Vehicle " + vehicle;
+    bodyInput.value = "Dear " + currentVendor.Transporter + ",\n\n" +
+      "The following alert(s) were recorded for vehicle *" + vehicle + "*:\n\n" +
+      alertList + "\n\n" +
+      "You are requested to submit your explanation/justification as to why action should not be initiated against the concerned TTs under TDG provisions for the reported alerts from the VTS device.\n" +
+      "Please note that LA will not be issued to the following TTs until a satisfactory explanation is received and the matter is reviewed by the Plant.\n\nRegards,\nTeam S&D, Gopanari BP";
+    draftFields.style.display = "block";
+    notifyBtn.disabled = false;
+  });
+
+  var LOG_KEY = "alertNotifierLog_v2";
+  function loadLog() { try { var raw = localStorage.getItem(LOG_KEY); return raw ? JSON.parse(raw) : []; } catch (err) { return []; } }
+  function saveLog(entries) { try { localStorage.setItem(LOG_KEY, JSON.stringify(entries)); } catch (err) {} }
+  var logEntries = loadLog();
+
+  var sendStatus = document.getElementById("sendStatus");
+
+  notifyBtn.addEventListener("click", function () {
+    if (!currentVendor) return;
+    var vehicle = vehicleInput.value.trim().toUpperCase();
+    var codes = Array.from(selectedAlerts);
+    var subject = subjectInput.value;
+    var body = bodyInput.value;
+    var cc = ccInput.value.trim();
+
+    if (!WEBAPP_URL || WEBAPP_URL.indexOf("PASTE_YOUR") === 0) {
+      sendStatus.style.color = "var(--warn)";
+      sendStatus.textContent = "Backend URL not configured yet — set WEBAPP_URL in the script to enable silent sending.";
+      return;
+    }
+
+    notifyBtn.disabled = true;
+    sendStatus.style.color = "var(--ink-soft)";
+    sendStatus.textContent = "Sending…";
+
+    var payload = {
+      to: currentVendor["Email ID"],
+      cc: cc,
+      subject: subject,
+      body: body,
+      secret: SHARED_SECRET
+    };
+
+    // no-cors: we can't read the response, but the request still reaches
+    // and executes on the Apps Script backend. Treat as fire-and-forget.
+    fetch(WEBAPP_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    }).then(function () {
+      sendStatus.style.color = "var(--ok)";
+      sendStatus.textContent = "Sent to " + currentVendor["Email ID"] + (cc ? " (cc: " + cc + ")" : "");
+      logEntries.unshift({
+        time: new Date().toLocaleString(),
+        vehicle: vehicle,
+        transporter: currentVendor.Transporter,
+        alerts: codes.map(labelFor).join("; ") + (cc ? " (cc: " + cc + ")" : "")
+      });
+      saveLog(logEntries);
+      renderLog();
+    }).catch(function (err) {
+      sendStatus.style.color = "var(--warn)";
+      sendStatus.textContent = "Send failed — check your connection or the backend URL. (" + err.message + ")";
+    }).finally(function () {
+      notifyBtn.disabled = false;
+    });
+  });
+
+  var logBody = document.getElementById("logBody");
+  var logEmpty = document.getElementById("logEmpty");
+  var logCount = document.getElementById("logCount");
+
+  function escapeHtml(s) {
+    var d = document.createElement("div");
+    d.textContent = s == null ? "" : s;
+    return d.innerHTML;
+  }
+
+  function renderLog() {
+    logBody.innerHTML = "";
+    logCount.textContent = logEntries.length + " entr" + (logEntries.length === 1 ? "y" : "ies");
+    logEmpty.style.display = logEntries.length ? "none" : "block";
+    logEntries.slice(0, 200).forEach(function (e) {
+      var tr = document.createElement("tr");
+      tr.innerHTML =
+        "<td>" + escapeHtml(e.time) + "</td>" +
+        "<td>" + escapeHtml(e.vehicle) + "</td>" +
+        "<td>" + escapeHtml(e.transporter) + "</td>" +
+        "<td>" + escapeHtml(e.alerts) + "</td>" +
+        "<td><span class='pill sent'>opened</span></td>";
+      logBody.appendChild(tr);
+    });
+  }
+
+  document.getElementById("clearLogBtn").addEventListener("click", function () {
+    if (!confirm("Clear the notification log stored in this browser?")) return;
+    logEntries = [];
+    saveLog(logEntries);
+    renderLog();
+  });
+
+  renderLog();
+  updateDropdownLabel();
+</script>
+</body>
+</html>
