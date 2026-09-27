@@ -408,11 +408,15 @@
     var invoiceNo = invoiceInput.value.trim() || "—";
     var dateVal = new Date().toLocaleDateString("en-GB");
 
-    var thStyle = "border:1px solid #999;padding:8px 10px;background:#f0f0f0;text-align:left;font-family:Arial,Helvetica,sans-serif;font-size:13px;";
-    var tdStyle = "border:1px solid #999;padding:8px 10px;font-family:Arial,Helvetica,sans-serif;font-size:13px;";
+    // ---- Styled email formatting (navy header / light-grey data row) ----
+    var NAVY = "#1F3864";
+    var ROWFILL = "#F2F2F2";
+    var FONT = "Calibri, Arial, Helvetica, sans-serif";
+    var thStyle = "background-color:" + NAVY + ";color:#ffffff;font-weight:bold;font-size:13px;padding:10px 8px;border:1px solid " + NAVY + ";text-align:center;font-family:" + FONT + ";";
+    var tdStyle = "background-color:" + ROWFILL + ";font-size:13px;padding:10px 8px;border:1px solid #cccccc;text-align:center;font-family:" + FONT + ";";
 
     var table =
-      '<table style="border-collapse:collapse;margin:10px 0;">' +
+      '<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:10px 0;width:100%;max-width:520px;">' +
         '<tr>' +
           '<th style="' + thStyle + '">Vehicle No</th>' +
           '<th style="' + thStyle + '">Invoice No</th>' +
@@ -429,7 +433,7 @@
 
     var alertsJoinedAs = codes.map(labelForAs).join(", ");
     var tableAs =
-      '<table style="border-collapse:collapse;margin:10px 0;">' +
+      '<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:10px 0;width:100%;max-width:520px;">' +
         '<tr>' +
           '<th style="' + thStyle + '">গাড়ী নং</th>' +
           '<th style="' + thStyle + '">চালান নং</th>' +
@@ -446,19 +450,26 @@
 
     subjectInput.value = "VTS Alert Notification - Vehicle " + vehicle;
     bodyInput.value =
-      '<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;">Dear ' + escapeHtmlText(currentVendor.Transporter) + ',</p>' +
-      '<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;">The following alert(s) were recorded:</p>' +
-      table +
-      '<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;">You are requested to submit your explanation/justification as to why action should not be initiated against the concerned TTs under TDG provisions for the reported alerts from the VTS device.<br>' +
-      'Please note that LA will not be issued to the following TTs until a satisfactory explanation is received and the matter is reviewed by the Plant.</p>' +
-      '<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;">Regards,<br>Team S&amp;D, Gopanari BP</p>' +
-      '<hr style="border:none;border-top:1px solid #ccc;margin:18px 0;">' +
-      '<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;">প্ৰিয় ' + escapeHtmlText(currentVendor.Transporter) + ',</p>' +
-      '<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;">তলত উল্লেখিত সতৰ্কবাণী(সমূহ) লিপিবদ্ধ কৰা হৈছে:</p>' +
-      tableAs +
-      '<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;">আপোনাক অনুৰোধ কৰা হৈছে যে উল্লেখিত TT সমূহৰ বিৰুদ্ধে TDG বিধান অনুসৰি প্ৰতিবেদিত VTS ডিভাইচৰ সতৰ্কবাণীসমূহৰ বাবে কিয় ব্যৱস্থা গ্ৰহণ কৰা নহ\'ব সেই বিষয়ে আপোনাৰ ব্যাখ্যা/যুক্তি দাখিল কৰক।<br>' +
-      'অনুগ্ৰহ কৰি মন কৰিব যে সন্তোষজনক ব্যাখ্যা প্ৰাপ্ত নোহোৱালৈকে আৰু প্লাণ্টৰ দ্বাৰা বিষয়টো পুনৰীক্ষণ নোহোৱালৈকে উল্লেখিত TT সমূহলৈ LA জাৰি কৰা নহ\'ব।</p>' +
-      '<p style="font-family:Arial,Helvetica,sans-serif;font-size:14px;">ধন্যবাদেৰে,<br>টিম S&amp;D, গোপানাৰী BP</p>';
+      '<div style="font-family:' + FONT + ';max-width:640px;">' +
+        '<div style="font-size:20px;font-weight:bold;color:' + NAVY + ';margin-bottom:2px;">VTS ALERT NOTICE</div>' +
+        '<div style="font-size:12px;color:#595959;font-style:italic;border-bottom:2px solid ' + NAVY + ';padding-bottom:12px;margin-bottom:20px;">Team S&amp;D | Gopanari BP</div>' +
+
+        '<p style="font-size:15px;font-weight:bold;color:' + NAVY + ';margin:0 0 10px 0;">Dear ' + escapeHtmlText(currentVendor.Transporter) + ',</p>' +
+        '<p style="font-size:14px;margin:0 0 12px 0;">The following alert(s) were recorded:</p>' +
+        table +
+        '<p style="font-size:14px;margin:16px 0 0 0;">You are requested to submit your explanation/justification as to why action should not be initiated against the concerned TTs under TDG provisions for the reported alerts from the VTS device.</p>' +
+        '<p style="font-size:14px;margin:10px 0 0 0;">Please note that LA will not be issued to the following TTs until a satisfactory explanation is received and the matter is reviewed by the Plant.</p>' +
+        '<p style="font-size:14px;margin:18px 0 0 0;">Regards,<br><strong>Team S&amp;D, Gopanari BP</strong></p>' +
+
+        '<hr style="border:none;border-top:2px solid ' + NAVY + ';margin:24px 0;">' +
+
+        '<p style="font-size:15px;font-weight:bold;color:' + NAVY + ';margin:0 0 10px 0;">প্ৰিয় ' + escapeHtmlText(currentVendor.Transporter) + ',</p>' +
+        '<p style="font-size:14px;margin:0 0 12px 0;">তলত উল্লেখিত সতৰ্কবাণী(সমূহ) লিপিবদ্ধ কৰা হৈছে:</p>' +
+        tableAs +
+        '<p style="font-size:14px;margin:16px 0 0 0;">আপোনাক অনুৰোধ কৰা হৈছে যে উল্লেখিত TT সমূহৰ বিৰুদ্ধে TDG বিধান অনুসৰি প্ৰতিবেদিত VTS ডিভাইচৰ সতৰ্কবাণীসমূহৰ বাবে কিয় ব্যৱস্থা গ্ৰহণ কৰা নহ\'ব সেই বিষয়ে আপোনাৰ ব্যাখ্যা/যুক্তি দাখিল কৰক।</p>' +
+        '<p style="font-size:14px;margin:10px 0 0 0;">অনুগ্ৰহ কৰি মন কৰিব যে সন্তোষজনক ব্যাখ্যা প্ৰাপ্ত নোহোৱালৈকে আৰু প্লাণ্টৰ দ্বাৰা বিষয়টো পুনৰীক্ষণ নোহোৱালৈকে উল্লেখিত TT সমূহলৈ LA জাৰি কৰা নহ\'ব।</p>' +
+        '<p style="font-size:14px;margin:18px 0 0 0;">ধন্যবাদেৰে,<br><strong>টিম S&amp;D, গোপানাৰী BP</strong></p>' +
+      '</div>';
     draftFields.style.display = "block";
     notifyBtn.disabled = false;
   });
