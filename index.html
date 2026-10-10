@@ -256,4 +256,496 @@
     ["11033185","TAPAN MORAN & CO.","MSTAPANMORANGOP@GMAIL.COM","AS01GC0192 AS01HC9689 AS23CC0522 AS23CC0827 AS23CC7735 AS23CC7374"],
     ["11032882","TITABOR GAS AGENCY","AMRITMILI6@GMAIL.COM","AS19C7379 AS19C7380 AS19C7386"],
     ["11050319","UDAYANANDA BORUAH","PROSEBORUAH@GMAIL.COM","AS04BC9737"],
-    ["11042683","VALLEY FLAME
+    ["11042683","VALLEY FLAME AGENCY","VALLEYFLAMEAGENCY@GMAIL.COM","AS01GC0132"],
+    ["11051009","VALLEY FLAME AGENCY","VALLEYFLAMEAGENCY@GMAIL.COM","AS01GC0132"],
+    ["11044501","VIDYA SAGAR GUPTA","GUPTA82SAGAR@GMAIL.COM","AS01KC9267 AS23CC0959"],
+    ["11050620","WAKRO INDANE GRAMIN VITRAK","WAKROINDANEGRAMINVITRAK@GMAIL.COM","AS23DC2709"],
+    ["11924454","WANGCHA GAS AGENCY","SUSHILSHAH2471989@GMAIL.COM","AS23BC4277"]
+  ];
+
+  // Silent-send backend (Google Apps Script Web App deployed under 7b05.stores@gmail.com).
+  // Must match the SHARED_SECRET value set in EmailBackend.gs.
+  var WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzFCwMhZ-F87c3XmqckIFgJhG0d8Fzasg8cCVGckxcBTh6IcQfspXQNB6i6GgyWqU0jQA/exec";
+  var SHARED_SECRET = "fZYJb8MuHgiUpF8oGwshbV05XPe42ACS";
+
+  var DEFAULT_CC = "ksolei@indianoil.in, DasJ4@indianoil.in, MAURYARK1@indianoil.in, baruahrl@indianoil.in, rajputas@indianoil.in";
+  var SEND_DELAY_MS = 3000;     // pause between mails (Gmail rejects very fast sending)
+  var RETRY_WAIT_MS = 8000;     // wait before retrying after a "too many times" rate-limit error
+
+  // Only these alert types trigger a mail; every other alert type is ignored.
+  var ALERT_TYPES = [
+    ["ROUTE_DEVIATION", "Route deviation", "পথ বিচ্যুতি"],
+    ["OVERSPEEDING", "Overspeeding", "অতিগতি"],
+    ["NIGHT_DRIVING", "Night driving", "নিশা চালনা"],
+    ["CONTINUOUS_DRIVING", "Continuous driving", "অবিৰাম চালনা"]
+  ];
+  var ALERT_EN = {}, ALERT_AS = {};
+  ALERT_TYPES.forEach(function (a) { ALERT_EN[a[0]] = a[1]; ALERT_AS[a[0]] = a[2]; });
+
+  function normalize(v) { return (v || "").toString().toUpperCase().replace(/[\s\-]/g, "").trim(); }
+  function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
+
+  // ---------- Build vendor lookup ----------
+  var vendorIndex = {};      // TT -> first vendor record
+  var vendorConflicts = {};  // TT -> true when different emails exist for the same TT
+  VENDOR_GROUPS.forEach(function (g) {
+    g[3].split(" ").forEach(function (tt) {
+      var rec = { code: g[0], name: g[1], email: g[2], tt: tt };
+      var key = normalize(tt);
+      if (vendorIndex[key] && vendorIndex[key].email.toLowerCase() !== rec.email.toLowerCase()) vendorConflicts[key] = true;
+      if (!vendorIndex[key]) vendorIndex[key] = rec;
+    });
+  });
+
+  // ---------- Elements ----------
+  var fileInput = document.getElementById("fileInput");
+  var ccInput = document.getElementById("ccInput");
+  var resultPanel = document.getElementById("resultPanel");
+  var periodLine = document.getElementById("periodLine");
+  var statsEl = document.getElementById("stats");
+  var skipBox = document.getElementById("skipBox");
+  var vendorBody = document.getElementById("vendorBody");
+  var chkAll = document.getElementById("chkAll");
+  var chkResend = document.getElementById("chkResend");
+  var sendAllBtn = document.getElementById("sendAllBtn");
+  var sendStatus = document.getElementById("sendStatus");
+
+  ccInput.value = DEFAULT_CC;
+  var chipsEl = document.getElementById("alertChips");
+  ALERT_TYPES.forEach(function (a) {
+    var s = document.createElement("span"); s.className = "chip"; s.textContent = a[1]; chipsEl.appendChild(s);
+  });
+
+  // ---------- Persistent memory of what was already notified ----------
+  var SENT_KEY = "vtsSentKeys_v1";
+  var LOG_KEY = "alertNotifierLog_v3";
+  function loadJson(k, fb) { try { var r = localStorage.getItem(k); return r ? JSON.parse(r) : fb; } catch (e) { return fb; } }
+  function saveJson(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  var sentKeys = loadJson(SENT_KEY, {});   // "TT|bookingId" -> date sent
+  var logEntries = loadJson(LOG_KEY, []);
+
+  // ---------- Parse the uploaded Excel ----------
+  var parsed = null;   // { period, totalRows, matchedRows, groups: [...], skipped: [...] }
+
+  fileInput.addEventListener("change", function () {
+    var f = fileInput.files && fileInput.files[0];
+    if (!f) return;
+    if (typeof XLSX === "undefined") { alert("Excel reader library did not load. Check your internet connection and reload the page."); return; }
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      try { handleWorkbook(new Uint8Array(e.target.result)); }
+      catch (err) { alert("Could not read this file: " + err.message); }
+    };
+    reader.readAsArrayBuffer(f);
+  });
+
+  function fmtDate(v) {
+    if (v instanceof Date && !isNaN(v)) {
+      return ("0" + v.getDate()).slice(-2) + "/" + ("0" + (v.getMonth() + 1)).slice(-2) + "/" + v.getFullYear();
+    }
+    var s = (v == null ? "" : String(v)).trim();
+    var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? (m[3] + "/" + m[2] + "/" + m[1]) : s;
+  }
+  function sortKeyDate(v) {
+    var s = (v == null ? "" : String(v));
+    return s;
+  }
+
+  function handleWorkbook(data) {
+    var wb = XLSX.read(data, { type: "array", cellDates: true });
+    var sheetName = wb.SheetNames.indexOf("Overall") >= 0 ? "Overall" : wb.SheetNames[0];
+    var rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: "" });
+
+    var hdr = -1, period = "";
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      if (!period && typeof r[0] === "string" && /^From\s/i.test(r[0])) period = r[0];
+      if (r.indexOf("Alert") >= 0 && r.indexOf("BookingId") >= 0 && r.indexOf("Vehicle") >= 0) { hdr = i; break; }
+    }
+    if (hdr < 0) { alert("Could not find the columns Alert, BookingId and Vehicle in this file."); return; }
+
+    var H = rows[hdr], col = {};
+    H.forEach(function (name, idx) { col[String(name).trim()] = idx; });
+    var iAlert = col["Alert"], iBook = col["BookingId"], iVeh = col["Vehicle"], iDate = col["ViolationDate"];
+
+    var wanted = {}; ALERT_TYPES.forEach(function (a) { wanted[a[0]] = true; });
+    var byPair = {}, order = [], totalRows = 0, matchedRows = 0;
+
+    for (var j = hdr + 1; j < rows.length; j++) {
+      var row = rows[j];
+      var vehicle = normalize(row[iVeh]);
+      var alert_ = String(row[iAlert] || "").trim().toUpperCase();
+      if (!vehicle || !alert_) continue;
+      totalRows++;
+      if (!wanted[alert_]) continue;
+      var booking = String(row[iBook] == null ? "" : row[iBook]).trim();
+      if (!booking) booking = "—";
+      matchedRows++;
+      var key = vehicle + "|" + booking;
+      if (!byPair[key]) {
+        byPair[key] = { vehicle: vehicle, booking: booking, alerts: {}, dateRaw: row[iDate], dateSort: sortKeyDate(row[iDate]) };
+        order.push(key);
+      }
+      byPair[key].alerts[alert_] = true;
+      var ds = sortKeyDate(row[iDate]);
+      if (ds && (!byPair[key].dateSort || ds < byPair[key].dateSort)) { byPair[key].dateSort = ds; byPair[key].dateRaw = row[iDate]; }
+    }
+
+    // Match each (TT, booking) to a vendor
+    var vendors = {}, vendorOrder = [], skipped = [];
+    order.forEach(function (key) {
+      var p = byPair[key];
+      var codes = Object.keys(p.alerts);
+      var rec = vendorIndex[p.vehicle];
+      function skip(why) { skipped.push({ vehicle: p.vehicle, booking: p.booking, date: fmtDate(p.dateRaw), alerts: codes, why: why }); }
+      if (vendorConflicts[p.vehicle]) { skip("TT is listed under vendors with different emails"); return; }
+      if (!rec) { skip("TT not found in vendor directory"); return; }
+      if (!rec.email) { skip(rec.name + " has no email on file"); return; }
+      if (!vendors[rec.code]) { vendors[rec.code] = { code: rec.code, name: rec.name, email: rec.email, items: [], selected: true, state: "" }; vendorOrder.push(rec.code); }
+      vendors[rec.code].items.push({
+        vehicle: p.vehicle, booking: p.booking, alerts: codes,
+        date: fmtDate(p.dateRaw), sentKey: p.vehicle + "|" + p.booking
+      });
+    });
+
+    var groups = vendorOrder.map(function (c) { return vendors[c]; });
+    groups.sort(function (a, b) { return a.name.localeCompare(b.name); });
+    groups.forEach(function (g) { g.items.sort(function (a, b) { return a.vehicle.localeCompare(b.vehicle); }); });
+
+    parsed = { period: period, totalRows: totalRows, matchedRows: matchedRows, pairs: order.length, groups: groups, skipped: skipped };
+    renderResults();
+  }
+
+  // ---------- Helpers on current selection ----------
+  function activeItems(g) {
+    return g.items.filter(function (it) { return chkResend.checked || !sentKeys[it.sentKey]; });
+  }
+  function ccList() {
+    return ccInput.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+
+  function renderResults() {
+    resultPanel.classList.remove("hidden");
+    periodLine.textContent = parsed.period ? ("Report period: " + parsed.period.replace(/^From\s*/i, "")) : "";
+
+    var totalPairs = 0;
+    parsed.groups.forEach(function (g) { totalPairs += g.items.length; });
+    statsEl.innerHTML =
+      stat(parsed.totalRows, "alert rows in report") +
+      stat(parsed.matchedRows, "rows with the 4 alert types") +
+      stat(parsed.pairs, "unique TT + booking ID") +
+      stat(parsed.groups.length, "transporters to notify");
+
+    if (parsed.skipped.length) {
+      skipBox.classList.remove("hidden");
+      skipBox.innerHTML = "<h3>Not mailed (" + parsed.skipped.length + ") — fix these manually</h3><ul>" +
+        parsed.skipped.map(function (s) { return "<li><span class='mono'>" + esc(s.vehicle) + "</span> · booking " + esc(s.booking) + " — " + esc(s.why) + "</li>"; }).join("") +
+        "</ul>";
+    } else { skipBox.classList.add("hidden"); skipBox.innerHTML = ""; }
+
+    renderVendors();
+  }
+  function stat(n, t) { return "<div class='stat'><div class='n'>" + n + "</div><div class='t'>" + t + "</div></div>"; }
+
+  function tableHtml(items, lang) {
+    var NAVY = "#1F3864", ROWFILL = "#F2F2F2", FONT = "Calibri, Arial, Helvetica, sans-serif";
+    var th = "background-color:" + NAVY + ";color:#ffffff;font-weight:bold;font-size:13px;padding:10px 8px;border:1px solid " + NAVY + ";text-align:center;font-family:" + FONT + ";";
+    var td = "background-color:" + ROWFILL + ";font-size:13px;padding:10px 8px;border:1px solid #cccccc;text-align:center;font-family:" + FONT + ";";
+    var heads = lang === "as" ? ["গাড়ী নং", "চালান নং", "তাৰিখ", "চিনাক্ত কৰা সতৰ্কবাণী"] : ["Vehicle No", "Invoice No", "Date", "Alert Detected"];
+    var out = '<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:10px 0;width:100%;max-width:640px;"><tr>' +
+      heads.map(function (h) { return '<th style="' + th + '">' + h + '</th>'; }).join("") + '</tr>';
+    items.forEach(function (it) {
+      var names = it.alerts.map(function (c) { return (lang === "as" ? ALERT_AS[c] : ALERT_EN[c]) || c; }).join(", ");
+      out += '<tr><td style="' + td + '">' + esc(it.vehicle) + '</td><td style="' + td + '">' + esc(it.booking) + '</td><td style="' + td + '">' + esc(it.date) + '</td><td style="' + td + '">' + esc(names) + '</td></tr>';
+    });
+    return out + '</table>';
+  }
+
+  function buildMail(g, items) {
+    var NAVY = "#1F3864", FONT = "Calibri, Arial, Helvetica, sans-serif";
+    var firstDate = items[0].date;
+    var subject = "VTS Alert Notification - " + (items.length === 1 ? ("Vehicle " + items[0].vehicle) : (items.length + " Vehicles")) + " - " + firstDate;
+    var html =
+      '<div style="font-family:' + FONT + ';max-width:680px;">' +
+        '<div style="font-size:20px;font-weight:bold;color:' + NAVY + ';margin-bottom:2px;">VTS ALERT NOTICE</div>' +
+        '<div style="font-size:12px;color:#595959;font-style:italic;border-bottom:2px solid ' + NAVY + ';padding-bottom:12px;margin-bottom:20px;">Team S&amp;D | Gopanari BP</div>' +
+        '<p style="font-size:15px;font-weight:bold;color:' + NAVY + ';margin:0 0 10px 0;">Dear ' + esc(g.name) + ',</p>' +
+        '<p style="font-size:14px;margin:0 0 12px 0;">The following alert(s) were recorded:</p>' +
+        tableHtml(items, "en") +
+        '<p style="font-size:14px;margin:16px 0 0 0;">You are requested to submit your explanation/justification as to why action should not be initiated against the concerned TTs under TDG provisions for the reported alerts from the VTS device.</p>' +
+        '<p style="font-size:14px;margin:10px 0 0 0;">Please note that LA will not be issued to the following TTs until a satisfactory explanation is received and the matter is reviewed by the Plant.</p>' +
+        '<p style="font-size:14px;margin:18px 0 0 0;">Regards,<br><strong>Team S&amp;D, Gopanari BP</strong></p>' +
+        '<hr style="border:none;border-top:2px solid ' + NAVY + ';margin:24px 0;">' +
+        '<p style="font-size:15px;font-weight:bold;color:' + NAVY + ';margin:0 0 10px 0;">প্ৰিয় ' + esc(g.name) + ',</p>' +
+        '<p style="font-size:14px;margin:0 0 12px 0;">তলত উল্লেখিত সতৰ্কবাণী(সমূহ) লিপিবদ্ধ কৰা হৈছে:</p>' +
+        tableHtml(items, "as") +
+        '<p style="font-size:14px;margin:16px 0 0 0;">আপোনাক অনুৰোধ কৰা হৈছে যে উল্লেখিত TT সমূহৰ বিৰুদ্ধে TDG বিধান অনুসৰি প্ৰতিবেদিত VTS ডিভাইচৰ সতৰ্কবাণীসমূহৰ বাবে কিয় ব্যৱস্থা গ্ৰহণ কৰা নহ\'ব সেই বিষয়ে আপোনাৰ ব্যাখ্যা/যুক্তি দাখিল কৰক।</p>' +
+        '<p style="font-size:14px;margin:10px 0 0 0;">অনুগ্ৰহ কৰি মন কৰিব যে সন্তোষজনক ব্যাখ্যা প্ৰাপ্ত নোহোৱালৈকে আৰু প্লাণ্টৰ দ্বাৰা বিষয়টো পুনৰীক্ষণ নোহোৱালৈকে উল্লেখিত TT সমূহলৈ LA জাৰি কৰা নহ\'ব।</p>' +
+        '<p style="font-size:14px;margin:18px 0 0 0;">ধন্যবাদেৰে,<br><strong>টিম S&amp;D, গোপানাৰী BP</strong></p>' +
+      '</div>';
+    return { subject: subject, html: html };
+  }
+
+  function htmlToPlain(body) {
+    return body.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n\n").replace(/<\/tr>/gi, "\n")
+      .replace(/<\/t[dh]>/gi, "\t").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  function renderVendors() {
+    vendorBody.innerHTML = "";
+    var eligible = 0;
+    parsed.groups.forEach(function (g, idx) {
+      var items = activeItems(g);
+      var skippedOld = g.items.length - items.length;
+      var tr = document.createElement("tr");
+      var disabled = items.length === 0;
+      if (disabled) g.selected = false;
+      var shown = g.state === "sent" ? g.items : items;
+      var statusPill = g.state === "sent" ? "<span class='pill sent'>sent</span>"
+        : g.state === "fail" ? "<span class='pill fail'>failed</span><div class='muted' style='font-size:0.72rem;margin-top:4px;'>" + esc(g.error || "") + "</div>"
+        : g.state === "unconfirmed" ? "<span class='pill wait'>unconfirmed</span><div class='muted' style='font-size:0.72rem;margin-top:4px;'>" + esc(g.error || "") + " Check the Sent folder of the sending account.</div>"
+        : g.state === "sending" ? "<span class='pill wait'>sending…</span>"
+        : disabled ? "<span class='pill wait'>already notified</span>" : "<span class='pill wait'>ready</span>";
+      var bookings = items.map(function (it) { return it.booking; });
+      var pv = "";
+      if (items.length) {
+        var m = buildMail(g, items);
+        pv = "<details class='pv'><summary>Preview mail</summary><div class='pv-body'><div class='muted' style='font-size:0.78rem;margin-bottom:6px;'>Subject: " + esc(m.subject) + "</div>" + m.html + "</div></details>";
+      }
+      tr.innerHTML =
+        "<td><input type='checkbox' data-idx='" + idx + "' " + (g.selected && !disabled ? "checked" : "") + (disabled ? " disabled" : "") + "></td>" +
+        "<td><strong>" + esc(g.name) + "</strong><div class='muted mono' style='font-size:0.74rem;'>" + esc(g.code) + "</div>" + pv + "</td>" +
+        "<td class='mono'>" + esc(g.email) + "</td>" +
+        "<td>" + shown.map(function (it) { return "<div class='mono'>" + esc(it.vehicle) + "</div>"; }).join("") + "</td>" +
+        "<td>" + shown.map(function (it) { return "<div class='mono'>" + esc(it.booking) + "</div>"; }).join("") + (skippedOld ? "<div class='muted' style='font-size:0.72rem;'>" + skippedOld + " already notified</div>" : "") + "</td>" +
+        "<td>" + statusPill + "</td>";
+      vendorBody.appendChild(tr);
+      if (!disabled) eligible++;
+    });
+    vendorBody.querySelectorAll("input[type=checkbox]").forEach(function (cb) {
+      cb.addEventListener("change", function () {
+        parsed.groups[+cb.getAttribute("data-idx")].selected = cb.checked;
+        updateSendButton();
+      });
+    });
+    updateSendButton();
+  }
+
+  function selectedGroups() {
+    return parsed ? parsed.groups.filter(function (g) { return g.selected && activeItems(g).length > 0; }) : [];
+  }
+  function updateSendButton() {
+    var sel = selectedGroups();
+    var recipients = sel.length * (1 + ccList().length);
+    sendAllBtn.disabled = sel.length === 0;
+    sendAllBtn.textContent = sel.length ? ("Send " + sel.length + " mail" + (sel.length === 1 ? "" : "s") + " to selected transporters") : "Nothing to send";
+    if (sel.length) {
+      sendStatus.style.color = "var(--ink-soft)";
+      sendStatus.textContent = sel.length + " mail(s) · about " + recipients + " recipients including CC. Free Gmail accounts have a daily recipient limit (about 100).";
+    } else { sendStatus.textContent = ""; }
+  }
+
+  chkAll.addEventListener("change", function () {
+    if (!parsed) return;
+    parsed.groups.forEach(function (g) { g.selected = chkAll.checked && activeItems(g).length > 0; });
+    renderVendors();
+  });
+  chkResend.addEventListener("change", function () {
+    if (!parsed) return;
+    parsed.groups.forEach(function (g) { g.selected = activeItems(g).length > 0 && chkAll.checked; });
+    renderVendors();
+  });
+  ccInput.addEventListener("input", updateSendButton);
+
+  // ---------- Send all ----------
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  sendAllBtn.addEventListener("click", function () {
+    var sel = selectedGroups();
+    if (!sel.length) return;
+    var cc = ccList();
+    var recipients = sel.length * (1 + cc.length);
+    if (!confirm("Send " + sel.length + " mail(s) now?\n\nTotal recipients including CC: about " + recipients + ".\nThis cannot be undone.")) return;
+    runSend(sel, cc.join(", "));
+  });
+
+  // Sends one mail and reports what the backend really answered.
+  // Returns { ok: true } | { ok: false, error, daily } | { ok: null, error } (no confirmation received)
+  async function sendOne(payload) {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      try {
+        // No custom headers on purpose: keeps this a "simple" request so the reply can be read.
+        var res = await fetch(WEBAPP_URL, { method: "POST", body: JSON.stringify(payload) });
+        var out = await res.json();
+        if (out && out.ok) return { ok: true };
+        var msg = (out && out.error) ? String(out.error) : "Backend did not confirm the send";
+        if (/for one day/i.test(msg)) return { ok: false, error: msg, daily: true };
+        if (/too many times/i.test(msg) && attempt < 2) { await sleep(RETRY_WAIT_MS); continue; }
+        return { ok: false, error: msg };
+      } catch (err) {
+        return { ok: null, error: "No reply received from the backend (" + err.message + ")." };
+      }
+    }
+    return { ok: false, error: "Gmail rate limit — gave up after retries" };
+  }
+
+  async function runSend(sel, ccStr) {
+    sendAllBtn.disabled = true; chkAll.disabled = true; chkResend.disabled = true;
+    var ok = 0, bad = 0, unsure = 0, stoppedDaily = false, notTried = 0;
+    for (var i = 0; i < sel.length; i++) {
+      var g = sel[i];
+      var items = activeItems(g);
+      g.state = "sending"; g.error = ""; renderVendors();
+      sendStatus.style.color = "var(--ink-soft)";
+      sendStatus.textContent = "Sending " + (i + 1) + " of " + sel.length + " — " + g.name + "…";
+      var m = buildMail(g, items);
+      var payload = { to: g.email, cc: ccStr, subject: m.subject, body: htmlToPlain(m.html), htmlBody: m.html, secret: SHARED_SECRET };
+      var r = await sendOne(payload);
+      var logStatus;
+      if (r.ok === true) {
+        g.state = "sent"; ok++; logStatus = "sent";
+        items.forEach(function (it) { sentKeys[it.sentKey] = new Date().toLocaleString(); });
+        saveJson(SENT_KEY, sentKeys);
+      } else if (r.ok === false) {
+        g.state = "fail"; g.error = r.error; bad++; logStatus = "failed";
+      } else {
+        g.state = "unconfirmed"; g.error = r.error; unsure++; logStatus = "unconfirmed";
+      }
+      logEntries.unshift({
+        time: new Date().toLocaleString(), transporter: g.name,
+        detail: items.map(function (it) { return it.vehicle + " (" + it.booking + ")"; }).join("; ") + (r.ok === true ? "" : " — " + r.error),
+        status: logStatus
+      });
+      saveJson(LOG_KEY, logEntries.slice(0, 500));
+      renderLog(); renderVendors();
+      if (r.daily) { stoppedDaily = true; notTried = sel.length - i - 1; break; }
+      if (i < sel.length - 1) await sleep(SEND_DELAY_MS);
+    }
+    var parts = [ok + " confirmed sent"];
+    if (bad) parts.push(bad + " failed");
+    if (unsure) parts.push(unsure + " unconfirmed");
+    var line = "Done. " + parts.join(", ") + ".";
+    if (stoppedDaily) line += " Stopped early: the daily email limit of the sending account is used up, " + notTried + " mail(s) were not attempted. Try again tomorrow or use fewer CC addresses.";
+    chkAll.disabled = false; chkResend.disabled = false;
+    updateSendButton();
+    sendStatus.textContent = line;   // set after updateSendButton so the result stays visible
+    sendStatus.style.color = (bad || unsure) ? "var(--warn)" : "var(--ok)";
+    if (ok) { try { downloadSummary(); } catch (e) {} }
+  }
+
+  // ---------- Summary Excel (list to submit at the gate) ----------
+  function alertText(it) {
+    return ALERT_TYPES.filter(function (a) { return it.alerts.indexOf(a[0]) >= 0; }).map(function (a) { return a[1]; }).join(", ");
+  }
+  function reportDateStamp() {
+    var m = parsed && parsed.period ? parsed.period.match(/From\s+(\d{2})\.(\d{2})\.(\d{4})/i) : null;
+    return m ? (m[1] + "-" + m[2] + "-" + m[3]) : fmtDate(new Date()).replace(/\//g, "-");
+  }
+
+  function buildSummaryWorkbook() {
+    var NAVY = "FF1F3864", FONT = "Arial";
+    var thin = { style: "thin", color: { argb: "FF999999" } };
+    var border = { top: thin, left: thin, bottom: thin, right: thin };
+    var wb = new ExcelJS.Workbook();
+
+    function setRow(row, arr) {
+      arr.forEach(function (v, i) { row.getCell(i + 1).value = v; });
+    }
+    function styleHeader(row) {
+      row.eachCell(function (c) {
+        c.font = { name: FONT, bold: true, size: 10, color: { argb: "FFFFFFFF" } };
+        c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: NAVY } };
+        c.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+        c.border = border;
+      });
+    }
+    function styleBody(row, leftCols) {
+      row.eachCell(function (c, n) {
+        c.font = { name: FONT, size: 10 };
+        c.border = border;
+        c.alignment = { horizontal: leftCols.indexOf(n) >= 0 ? "left" : "center", vertical: "middle", wrapText: true };
+      });
+    }
+
+    // Sheet 1: every TT + booking that qualified and had a vendor email
+    var ws = wb.addWorksheet("Mailed TTs", {
+      views: [{ state: "frozen", ySplit: 4 }],
+      pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0, printTitlesRow: "4:4" }
+    });
+    ws.getCell("A1").value = "VTS Alert Notice - TTs mailed";
+    ws.getCell("A1").font = { name: FONT, size: 14, bold: true, color: { argb: NAVY } };
+    ws.getCell("A2").value = "LPG BP Gopanari | " + (parsed.period ? parsed.period.replace(/^From\s*/i, "") : "") + " | Alerts: " + ALERT_TYPES.map(function (a) { return a[1]; }).join(", ");
+    ws.getCell("A2").font = { name: FONT, size: 10, italic: true };
+    var widths = [7, 34, 13, 14, 24, 12, 42, 26];
+    widths.forEach(function (w, i) { ws.getColumn(i + 1).width = w; });
+    setRow(ws.getRow(4), ["Sl No", "Transporter", "Vendor Code", "TT No", "Invoice No (Booking ID)", "Date", "Alert Type", "Mail Status"]);
+    styleHeader(ws.getRow(4));
+
+    var n = 0;
+    parsed.groups.forEach(function (g) {
+      g.items.forEach(function (it) {
+        n++;
+        var r = ws.getRow(4 + n);
+        setRow(r, [n, g.name, g.code, it.vehicle, it.booking, it.date, alertText(it), sentKeys[it.sentKey] ? ("Mailed " + sentKeys[it.sentKey]) : "Not mailed"]);
+        styleBody(r, [2, 7]);
+      });
+    });
+
+    // Sheet 2: cases that could not be mailed
+    if (parsed.skipped.length) {
+      var w2 = wb.addWorksheet("Not mailed");
+      [14, 24, 12, 42, 52].forEach(function (w, i) { w2.getColumn(i + 1).width = w; });
+      setRow(w2.getRow(1), ["TT No", "Invoice No (Booking ID)", "Date", "Alert Type", "Reason"]);
+      styleHeader(w2.getRow(1));
+      parsed.skipped.forEach(function (s, i) {
+        var r = w2.getRow(2 + i);
+        setRow(r, [s.vehicle, s.booking, s.date, alertText(s), s.why]);
+        styleBody(r, [4, 5]);
+      });
+    }
+    return wb;
+  }
+
+  function downloadSummary() {
+    if (!parsed) return;
+    if (typeof ExcelJS === "undefined") { alert("Excel writer library did not load. Check your internet connection and reload the page."); return; }
+    buildSummaryWorkbook().xlsx.writeBuffer().then(function (buf) {
+      var blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "VTS_Alert_Mailed_TT_List_" + reportDateStamp() + ".xlsx";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+    });
+  }
+  document.getElementById("summaryBtn").addEventListener("click", downloadSummary);
+
+  // ---------- Log ----------
+  var logBody = document.getElementById("logBody");
+  var logEmpty = document.getElementById("logEmpty");
+  var logCount = document.getElementById("logCount");
+  function renderLog() {
+    logBody.innerHTML = "";
+    logCount.textContent = logEntries.length + " entr" + (logEntries.length === 1 ? "y" : "ies");
+    logEmpty.style.display = logEntries.length ? "none" : "block";
+    logEntries.slice(0, 200).forEach(function (e) {
+      var tr = document.createElement("tr");
+      tr.innerHTML = "<td>" + esc(e.time) + "</td><td>" + esc(e.transporter) + "</td><td class='mono' style='font-size:0.76rem;'>" + esc(e.detail) + "</td><td><span class='pill " + (e.status === "sent" ? "sent" : "fail") + "'>" + esc(e.status) + "</span></td>";
+      logBody.appendChild(tr);
+    });
+  }
+  document.getElementById("clearLogBtn").addEventListener("click", function () {
+    if (!confirm("Clear the notification log stored in this browser?")) return;
+    logEntries = []; saveJson(LOG_KEY, logEntries); renderLog();
+  });
+  document.getElementById("clearSentBtn").addEventListener("click", function () {
+    if (!confirm("Forget which bookings were already notified? The same bookings could be mailed again if you upload the same report.")) return;
+    sentKeys = {}; saveJson(SENT_KEY, sentKeys);
+    if (parsed) renderVendors();
+  });
+
+  renderLog();
+</script>
+</body>
+</html>
